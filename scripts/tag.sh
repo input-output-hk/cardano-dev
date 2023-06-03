@@ -16,7 +16,10 @@
 
 set -euo pipefail
 
-main_branch="main"
+git_root="$(git rev-parse --show-toplevel)"
+main_branch="$(cat "$git_root/.cardano-dev.yaml" | yq -o json | jq -r '."main-branch"')"
+release_branch_prefix="$(cat "$git_root/.cardano-dev.yaml" | yq -o json | jq -r '."release-branch".prefix')"
+release_branch_suffix="$(cat "$git_root/.cardano-dev.yaml" | yq -o json | jq -r '."release-branch".suffix')"
 
 if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
   echo -e "\e[31mRefusing to run because there are untracked changes in the repository.\e[0m"
@@ -58,10 +61,14 @@ for line in "${lines[@]}"; do
   head_commit="$(git rev-parse --quiet --verify HEAD)"
   tag_commit="$(git rev-parse --quiet --verify "refs/tags/$tag" || true)"
   remote_commit="$(git ls-remote --quiet origin --verify "refs/tags/$tag" | awk '{print $1}' || true)"
+  branch_pattern="^origin/\\($main_branch\\|$release_branch_prefix$name-[0-9.]*$release_branch_suffix\\)$"
 
   if [ "$tag_commit" == "" ]; then
     if [ "$remote_commit" == "" ]; then
-      if git branch -r --contains "$head_commit" | sed 's|^ \+||g' | cut -d ' ' -f 1 | grep -q "^origin/\\($main_branch\\|$name-[0-9].*-branch\\)$"; then
+      if git branch -r --contains "$head_commit" \
+          | sed 's|^ \+||g' \
+          | cut -d ' ' -f 1 \
+          | grep -q "$branch_pattern"; then
         git tag "$tag" > /dev/null 2> /dev/null
         git push origin "$tag" > /dev/null 2> /dev/null
         echo -e "\e[32m$tag created and pushed.\e[0m"
