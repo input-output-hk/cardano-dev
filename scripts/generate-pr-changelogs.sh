@@ -1,12 +1,10 @@
 #!/usr/bin/env bash
 
 repository="$1"
-subdir="$2"
-commit_range="$3"
+commit_range="$2"
 
-root_dir="$HOME/.cardano-updates"
+root_dir="$HOME/.cache/cardano-updates"
 work_dir="$root_dir/$repository"
-work_subdir="$work_dir/$subdir"
 download_file="$work_dir/download.yaml"
 
 trim() {
