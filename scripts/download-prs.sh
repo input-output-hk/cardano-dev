@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -eu
+
 (yq --version | grep https://github.com/mikefarah/yq/ > /dev/null) || {
   echo "Please install yq from https://github.com/mikefarah/yq/" > /dev/stderr
   exit 1
@@ -11,15 +13,9 @@ if [ "$#" -ne 1 ]; then
   exit 1
 fi
 
-if [[ "$(uname -s)" == "Darwin" ]]; then
-  date_cmd=gdate
-else
-  date_cmd=date
-fi
-
 repository="$1"
 
-root_dir="$HOME/.cardano-updates"
+root_dir="$HOME/.cache/cardano-updates"
 out_dir="$root_dir/$repository"
 
 mkdir -p "$out_dir"
