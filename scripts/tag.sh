@@ -26,20 +26,21 @@ if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
   exit 1
 fi
 
-cabal build all --dry-run > /dev/null
-
 components_file="$(mktemp)-version.json"
 
-cat dist-newstyle/cache/plan.json \
-  | jq -rc '
-        ."install-plan"[]
-      | select(.style == "local" and ."component-name" == "lib")
-      | { "component": ."component-name"
-        , "name": ."pkg-name"
-        , "version": ."pkg-version"
-        , "path": ."pkg-src".path
-        }
-      ' > "$components_file"
+# run cabal commands in the superproject directory to use its dist-newstyle - if available
+( cd "$(git rev-parse --show-superproject-working-tree)" ;
+  cabal build all --dry-run > /dev/null ;
+  cat dist-newstyle/cache/plan.json \
+    | jq -rc '
+          ."install-plan"[]
+        | select(.style == "local" and ."component-name" == "lib")
+        | { "component": ."component-name"
+          , "name": ."pkg-name"
+          , "version": ."pkg-version"
+          , "path": ."pkg-src".path
+          }
+        ' > "$components_file" )
 
 mapfile -t lines < "$components_file"
 
