@@ -28,7 +28,7 @@ fi
 
 components_file="$(mktemp)-version.json"
 
-# run cabal commands in the superproject directory to use its dist-newstyle - if available
+# Run cabal commands in the superproject directory to use its dist-newstyle - if available
 ( cd "$(git rev-parse --show-superproject-working-tree)" ;
   cabal build all --dry-run > /dev/null ;
   cat dist-newstyle/cache/plan.json \
@@ -44,6 +44,12 @@ components_file="$(mktemp)-version.json"
 
 mapfile -t lines < "$components_file"
 
+# If using multiple submodules with multiple projects and single dist-newstyle with a superproject, cabal.plan
+# will contain all packages listed in cabal.project, which means there will be more packages than there are
+# present in current directory.
+# A list of cabal packages in the current directory to narrow down what is obtained from cabal-plan.json.
+local_packages=$(find . -type d -name 'dist-newstyle' -prune -o -type f -iname "*.cabal" -exec sed -n 's/^name:[[:space:]]*\(.*\)/\1/p' "{}" \;)
+
 git fetch origin --tags > /dev/null 2> /dev/null
 
 # Iterate over each line in the array
@@ -53,6 +59,9 @@ for line in "${lines[@]}"; do
   version="$(echo "$line" | jq -r '.version')"
   tag="$(echo "$line" | jq -r '.name + "-" + .version')"
   path="$(echo "$line" | jq -r '.path')"
+
+  # do not use packages not from current directory
+  (echo "$local_packages" | grep -P "^${name}$" &>/dev/null) || continue
 
   if ! grep -q "## $version" "$path/CHANGELOG.md"; then
     echo -e "\e[31m$path/CHANGELOG.md does not contain a section for this version $version.\e[0m"
