@@ -1,19 +1,30 @@
 #!/usr/bin/env bash
 
+set -euo pipefail
+
 repository="$1"
 commit_range="$2"
 
+required_cfg_version=2
+
+git_root="$(git rev-parse --show-toplevel)"
+cfg_file="$git_root/.cardano-dev.yaml"
 root_dir="$HOME/.cache/cardano-updates"
 work_dir="$root_dir/$repository"
 download_file="$work_dir/download.yaml"
 
+cfg_version="$(cat "$cfg_file" | yq -o json | jq -r '.version')"
+notable_compatibilities_json="$(cat "$cfg_file" | yq -o json | jq -r '.changelog.options.compatibility | to_entries | map(select(.value == "add") | .key) | @json')"
+notable_types_json="$(cat "$cfg_file" | yq -o json | jq -r '.changelog.options.type | to_entries | map(select(.value == "add") | .key) | @json')"
+
+if [ "$cfg_version" -lt "$required_cfg_version" ]; then
+  echo "Unsupported config version: $cfg_version. Required config version at least: $required_cfg_version" >&2
+  exit 1
+fi
+
 trim() {
-    local trimmed=$1
-    # Remove leading whitespace
-    trimmed=${trimmed##+([[:space:]])}
-    # Remove trailing whitespace
-    trimmed=${trimmed%%+([[:space:]])}
-    printf '%s' "$trimmed"
+  local trimmed=$1
+  awk '{$1=$1}1' <<< "$trimmed"
 }
 
 extract_changelog() {
@@ -39,16 +50,21 @@ extract_changelog() {
 
 select_notable() {
   yq -o json \
-    | jq -r '
-          ["feature", "bugfix"] as $notable
+    | jq -r "
+          $notable_types_json as \$notable_types
+        | $notable_compatibilities_json as \$notable_compatibilities
         | if length == 0 then
             true
-          elif .[0] | [.type] | flatten | any([.] | inside($notable)) then
-            true
+          elif .[0] | [.type] | flatten | any([.] | inside(\$notable_types)) then
+            if .[0] | [.compatibility] | flatten | any([.] | inside(\$notable_compatibilities)) then
+              true
+            else
+              halt_error(1)
+            end
           else
             halt_error(1)
           end
-      ' \
+      " \
     > /dev/null 2> /dev/null
 }
 

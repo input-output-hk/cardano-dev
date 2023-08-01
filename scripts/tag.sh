@@ -17,9 +17,10 @@
 set -euo pipefail
 
 git_root="$(git rev-parse --show-toplevel)"
-main_branch="$(cat "$git_root/.cardano-dev.yaml" | yq -o json | jq -r '."main-branch"')"
-release_branch_prefix="$(cat "$git_root/.cardano-dev.yaml" | yq -o json | jq -r '."release-branch".prefix')"
-release_branch_suffix="$(cat "$git_root/.cardano-dev.yaml" | yq -o json | jq -r '."release-branch".suffix')"
+cfg_file="$git_root/.cardano-dev.yaml" 
+main_branch="$(cat "$cfg_file" | yq -o json | jq -r '."main-branch"')"
+release_branch_prefix="$(cat "$cfg_file" | yq -o json | jq -r '."release-branch".prefix')"
+release_branch_suffix="$(cat "$cfg_file" | yq -o json | jq -r '."release-branch".suffix')"
 
 if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
   echo -e "\e[31mRefusing to run because there are untracked changes in the repository.\e[0m"
