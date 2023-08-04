@@ -14,7 +14,6 @@ work_dir="$root_dir/$repository"
 download_file="$work_dir/download.yaml"
 
 cfg_version="$(cat "$cfg_file" | yq -o json | jq -r '.version')"
-notable_compatibilities_json="$(cat "$cfg_file" | yq -o json | jq -r '.changelog.options.compatibility | to_entries | map(select(.value == "add") | .key) | @json')"
 notable_types_json="$(cat "$cfg_file" | yq -o json | jq -r '.changelog.options.type | to_entries | map(select(.value == "add") | .key) | @json')"
 
 if [ "$cfg_version" -lt "$required_cfg_version" ]; then
@@ -52,15 +51,10 @@ select_notable() {
   yq -o json \
     | jq -r "
           $notable_types_json as \$notable_types
-        | $notable_compatibilities_json as \$notable_compatibilities
         | if length == 0 then
             true
           elif .[0] | [.type] | flatten | any([.] | inside(\$notable_types)) then
-            if .[0] | [.compatibility] | flatten | any([.] | inside(\$notable_compatibilities)) then
-              true
-            else
-              halt_error(1)
-            end
+            true
           else
             halt_error(1)
           end
@@ -91,7 +85,9 @@ JQ
               cat <<-JQ
                   .[]
                 | ([.type] | flatten | join(", ")) as \$type_string
-                | "- \(.description | gsub("^[[:space:]]+|[[:space:]]+$"; "") | gsub("\n"; "\n  "))\n  (\(\$type_string); \(.compatibility))"
+                | ([.compatibility] | flatten | join(", ")) as \$compatibility
+                | ([\$type_string, \$compatibility] | map(select(. != null and . != "")) | join ("; ")) as \$type_comp
+                | "- \(.description | gsub("^[[:space:]]+|[[:space:]]+$"; "") | gsub("\n"; "\n  "))\n  (\(\$type_comp))"
 JQ
           )"
     else
