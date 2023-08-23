@@ -73,7 +73,7 @@ for pr_number in $(
       .[] | select(.number == $pr_number) | .body
 JQ
     )" \
-      | awk '/# Changelog/{flag=1;next}/^#/{flag=0}flag' \
+      | awk '/# Changelog/ {found=1} found {print}' \
       | awk '/^```yaml/{flag=1;next}/^```/{flag=0}flag' \
       > "$temp_changelog_yaml"
 
