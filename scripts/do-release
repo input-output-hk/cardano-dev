@@ -1,0 +1,93 @@
+#!/usr/bin/env cabal
+{- cabal:
+build-depends:
+    base
+  , bytestring
+  , aeson
+  , github >= 0.28
+  , optparse-applicative
+  , relude
+  , safe-exceptions
+  , pretty-simple
+  , text
+  , yaml
+  , xdg-basedir
+default-extensions:
+    NoImplicitPrelude
+  , GADTs
+  , DerivingStrategies
+  , DeriveAnyClass
+  , GeneralizedNewtypeDeriving
+  , StandaloneDeriving
+  , ScopedTypeVariables
+  , FlexibleContexts
+  , LambdaCase
+  , OverloadedStrings
+  , RecordWildCards
+  , OverloadedLists
+ghc-options: -Wall -Wextra -Wcompat
+-}
+
+import           Control.Exception.Safe
+import           Data.Aeson                     ((.:))
+import qualified Data.Yaml                      as Y
+import           GHC.Stack
+import qualified GitHub.Auth                    as G
+import qualified Relude
+import           Relude                         hiding (error, liftIO)
+import qualified System.Environment.XDG.BaseDir as XDG
+import           Text.Pretty.Simple
+import System.IO (hPutStrLn, stderr)
+
+main :: IO ()
+main = handleExceptions $ do
+  putStrLn $ "hello cabal"
+  res <- getAuthToken
+  print res
+  where
+    handleExceptions m = catch m $ \someExc@SomeException{} -> do
+      hPutStrLn stderr $ "\nCaught exception:\n" <> displayException someExc
+
+
+getAuthToken :: (HasCallStack, MonadCatch m, MonadIO m) => m G.Auth
+getAuthToken = handle (throwM . AuthTokenException) $ do
+  -- error (show . AppException . toException $ StringException "asdf" callStack)
+  token <- lookupEnv "DOR_GH_TOKEN" >>= \case
+    Just token -> pure $ toText token
+    Nothing ->
+      runIO (XDG.getUserConfigFile "gh" "xhosts.yml")
+        >>= (runIO . Y.decodeFileThrow)
+        >>= parseThrow ((.: "github.com") >=> (.: "oauth_token"))
+  pure . G.OAuth $ encodeUtf8 token
+  where
+    parseThrow :: (HasCallStack, MonadIO m) => (a -> Y.Parser b) -> a -> m b
+    parseThrow p v = withFrozenCallStack $
+      either (error . toText) pure $
+        Y.parseEither p v
+
+data AuthTokenException = HasCallStack => AuthTokenException SomeException
+deriving instance Show AuthTokenException
+deriving instance Typeable AuthTokenException
+instance Exception AuthTokenException where
+  displayException (AuthTokenException e) = "Cannot obtain GitHub authentication token:\n" <> displayException e
+
+-- {{{ Infrastructure
+
+data AppException = HasCallStack => AppException SomeException
+deriving instance Show AppException
+deriving instance Typeable AppException
+instance Exception AppException where
+  displayException (AppException ex) = displayException ex <> "\n" <> prettyCallStack callStack
+
+runIO :: (HasCallStack, MonadCatch m, MonadIO m) => IO a -> m a
+runIO m = withFrozenCallStack $ catch (Relude.liftIO m) $ (throwM . AppException)
+
+rethrowWith :: (HasCallStack, MonadThrow m, MonadIO m, Exception e1, Exception e2) => (e -> SomeException) -> m a -> m a
+rethrowWith f m = withFrozenCallStack $ catch m $ (throwM . f)
+
+error :: (HasCallStack, MonadIO m) => Text -> m a
+error a = withFrozenCallStack $ Relude.error a
+
+-- }}}
+
+-- vim: set filetype=haskell:
