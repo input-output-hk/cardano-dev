@@ -103,3 +103,4 @@ JQ
     echo
   fi
 done
+echo "Don't forget to bump the cabal file version number(s)!"
