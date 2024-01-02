@@ -51,7 +51,7 @@ mapfile -t lines < "$components_file"
 # A list of cabal packages in the current directory to narrow down what is obtained from cabal-plan.json.
 local_packages=$(find . -type d -name 'dist-newstyle' -prune -o -type f -iname "*.cabal" -exec sed -n 's/^name:[[:space:]]*\(.*\)/\1/p' "{}" \;)
 
-git fetch origin --tags > /dev/null 2> /dev/null
+git fetch origin --tags > /dev/null || { echo "Fetching tags failed. This happens if a remote tag was updated, but your local version wasn't. In this case you need to run: git fetch origin --tags --force"; exit 1; }
 
 # Iterate over each line in the array
 for line in "${lines[@]}"; do
