@@ -66,6 +66,7 @@ temp_changelog_yaml="$(mktemp)"
 
 for pr_number in $(
       git log --merges --oneline "$commit_range" \
+    | grep 'Merge pull request' \
     | sed 's|^[0-9a-z]\+ Merge pull request #\([0-9]\+\) .*$|\1|g'
     ); do
   cat "$download_file" | yq -o json | jq -r "$(
