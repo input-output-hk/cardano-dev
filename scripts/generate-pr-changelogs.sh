@@ -13,6 +13,8 @@ root_dir="$HOME/.cache/cardano-updates"
 work_dir="$root_dir/$repository"
 download_file="$work_dir/download.yaml"
 
+[[ -e "$download_file" ]] || { echo "$download_file doesn't exist. Did you forget to run download-prs.sh?"; exit 1; }
+
 cfg_version="$(cat "$cfg_file" | yq -o json | jq -r '.version')"
 notable_types_json="$(cat "$cfg_file" | yq -o json | jq -r '.changelog.options.type | to_entries | map(select(.value == "add") | .key) | @json')"
 
