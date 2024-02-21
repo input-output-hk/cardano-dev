@@ -94,7 +94,7 @@ JQ
 JQ
           )"
     else
-      echo "- <missing changelog>"
+      echo "- <missing changelog for PR ${pr_number}>"
     fi
 
     cat "$download_file" | yq -o json | jq -r "$(

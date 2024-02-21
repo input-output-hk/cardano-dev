@@ -17,7 +17,7 @@
 set -euo pipefail
 
 git_root="$(git rev-parse --show-toplevel)"
-cfg_file="$git_root/.cardano-dev.yaml" 
+cfg_file="$git_root/.cardano-dev.yaml"
 main_branch="$(cat "$cfg_file" | yq -o json | jq -r '."main-branch"')"
 release_branch_prefix="$(cat "$cfg_file" | yq -o json | jq -r '."release-branch".prefix')"
 release_branch_suffix="$(cat "$cfg_file" | yq -o json | jq -r '."release-branch".suffix')"
@@ -72,14 +72,14 @@ for line in "${lines[@]}"; do
   head_commit="$(git rev-parse --quiet --verify HEAD)"
   tag_commit="$(git rev-parse --quiet --verify "refs/tags/$tag" || true)"
   remote_commit="$(git ls-remote --quiet origin --verify "refs/tags/$tag" | awk '{print $1}' || true)"
-  branch_pattern="^origin/\\($main_branch\\|$release_branch_prefix$name-[0-9.]*$release_branch_suffix\\)$"
+  branch_pattern="^origin/($main_branch|$release_branch_prefix$name-[0-9.]{1,}($release_branch_suffix)?)$"
 
   if [ "$tag_commit" == "" ]; then
     if [ "$remote_commit" == "" ]; then
       if git branch -r --contains "$head_commit" \
           | sed 's|^ \+||g' \
           | cut -d ' ' -f 1 \
-          | grep -q "$branch_pattern"; then
+          | grep -q -P "$branch_pattern"; then
         git tag "$tag" > /dev/null 2> /dev/null
         git push origin "$tag" > /dev/null 2> /dev/null
         echo -e "\e[32m$tag created and pushed.\e[0m"
