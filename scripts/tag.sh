@@ -82,7 +82,7 @@ for line in "${lines[@]}"; do
           | grep -q -P "$branch_pattern"; then
         git tag "$tag" > /dev/null 2> /dev/null
         git push origin "$tag" > /dev/null 2> /dev/null
-        echo -e "\e[32m$tag created and pushed.\e[0m"
+        echo -e "\e[32m$tag created on $head_commit and pushed.\e[0m"
       else
         echo -e "\e[31m$tag error.  $main_branch branch nor any release branches contain commit $head_commit.\e[0m"
       fi
