@@ -13,6 +13,11 @@ root_dir="$HOME/.cache/cardano-updates"
 work_dir="$root_dir/$repository"
 download_file="$work_dir/download.yaml"
 
+for tool in jq yq
+do
+  command -v $tool > /dev/null || { echo "Exiting: you need to install $tool to use this script"; exit 1; }
+done
+
 [[ -e "$download_file" ]] || { echo "$download_file doesn't exist. Did you forget to run download-prs.sh?"; exit 1; }
 
 cfg_version="$(cat "$cfg_file" | yq -o json | jq -r '.version')"
