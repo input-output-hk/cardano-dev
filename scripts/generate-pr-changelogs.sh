@@ -13,6 +13,11 @@ root_dir="$HOME/.cache/cardano-updates"
 work_dir="$root_dir/$repository"
 download_file="$work_dir/download.yaml"
 
+for tool in jq yq
+do
+  command -v $tool > /dev/null || { echo "Exiting: you need to install $tool to use this script"; exit 1; }
+done
+
 [[ -e "$download_file" ]] || { echo "$download_file doesn't exist. Did you forget to run download-prs.sh?"; exit 1; }
 
 cfg_version="$(cat "$cfg_file" | yq -o json | jq -r '.version')"
@@ -67,7 +72,7 @@ select_notable() {
 temp_changelog_yaml="$(mktemp)"
 
 for pr_number in $(
-      git log --merges --oneline "$commit_range" \
+      git log --merges --oneline --ancestry-path "$commit_range" \
     | grep 'Merge pull request' \
     | sed 's|^[0-9a-z]\+ Merge pull request #\([0-9]\+\) .*$|\1|g'
     ); do
