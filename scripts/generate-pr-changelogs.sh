@@ -99,7 +99,7 @@ JQ
 JQ
           )"
     else
-      echo "- <missing changelog for PR ${pr_number}>"
+      echo "- <missing changelog for PR ${pr_number}. Did you forget to run download-prs.sh?>"
     fi
 
     cat "$download_file" | yq -o json | jq -r "$(
