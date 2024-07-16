@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
 
+echo $PATH
+which git
+which gh
+which jq
+which yq
+exit
+
 # This script is used to tag new versions of packages in a way that sanity checks
 # various items before a tag is created and pushed.
 #

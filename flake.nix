@@ -8,10 +8,13 @@
     utils.inputs.systems.follows = "systems";
   };
 
-  outputs = { nixpkgs, utils, ... }:
+  outputs = { nixpkgs, utils, haskellNix, ... }:
     utils.lib.eachDefaultSystem (system:
       let
-        pkgs = import nixpkgs { inherit system; };
+        pkgs = import nixpkgs {
+          inherit system;
+          inherit (haskellNix) config;
+        };
         # list of all scripts (without .sh suffix)
         scripts = with builtins;
           map (pkgs.lib.removeSuffix ".sh") (attrNames (readDir ./scripts));
@@ -24,6 +27,7 @@
               buildCommand = ''
                 ${old.buildCommand}
                  patchShebangs $out'';
+              buildInputs = with pkgs; [ git gh jq yq-go ];
             }));
         };
       in {
