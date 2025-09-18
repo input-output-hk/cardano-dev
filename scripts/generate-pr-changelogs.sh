@@ -71,6 +71,8 @@ select_notable() {
 
 temp_changelog_yaml="$(mktemp)"
 
+declare -A list_of_projects=()
+
 for pr_number in $(
       git log --merges --oneline "$commit_range" \
     | grep 'Merge pull request' \
@@ -84,30 +86,54 @@ JQ
       | awk '/# Changelog/ {found=1} found {print}' \
       | awk '/^```yaml/{flag=1;next}/^```/{flag=0}flag' \
       > "$temp_changelog_yaml"
+  pr_projects="$(cat "$temp_changelog_yaml" | yq -o json | jq -r ".[] | .projects? | .[]?")";
+  for project in $pr_projects;
+  do
+    list_of_projects[$project]="${list_of_projects[$project]:+${list_of_projects[$project]} }$pr_number"
+  done
+  if [ -z "$pr_projects" ]; then
+    list_of_projects["Project not specified"]="${list_of_projects["Project not specified"]:+${list_of_projects["Project not specified"]} }$pr_number"
+  fi
+done
 
-  if cat "$temp_changelog_yaml" | select_notable; then
-    if [ -s "$temp_changelog_yaml" ]; then
-      cat "$temp_changelog_yaml" \
-          | yq -o json \
-          | jq -r "$(
-              cat <<-JQ
-                  .[]
-                | ([.type] | flatten | join(", ")) as \$type_string
-                | ([.compatibility] | flatten | join(", ")) as \$compatibility
-                | ([\$type_string, \$compatibility] | map(select(. != null and . != "")) | join ("; ")) as \$type_comp
-                | "- \(.description | gsub("^[[:space:]]+|[[:space:]]+$"; "") | gsub("\n"; "\n  "))\n  (\(\$type_comp))"
-JQ
-          )"
-    else
-      echo "- <missing changelog for PR ${pr_number}. Did you forget to run download-prs.sh?>"
-    fi
-
+for project in "${!list_of_projects[@]}"; do
+  echo ""
+  echo "## $project"
+  echo ""
+  for pr_number in ${list_of_projects[$project]}; do
     cat "$download_file" | yq -o json | jq -r "$(
       cat <<-JQ
-        .[] | select(.number == $pr_number) | "  [PR \(.number)](\(.url))"
+        .[] | select(.number == $pr_number) | .body
 JQ
-    )"
+      )" \
+        | awk '/# Changelog/ {found=1} found {print}' \
+        | awk '/^```yaml/{flag=1;next}/^```/{flag=0}flag' \
+        > "$temp_changelog_yaml"
 
-    echo
-  fi
+    if cat "$temp_changelog_yaml" | select_notable; then
+      if [ -s "$temp_changelog_yaml" ]; then
+        cat "$temp_changelog_yaml" \
+            | yq -o json \
+            | jq -r "$(
+                cat <<-JQ
+                    .[]
+                  | ([.type] | flatten | join(", ")) as \$type_string
+                  | ([.compatibility] | flatten | join(", ")) as \$compatibility
+                  | ([\$type_string, \$compatibility] | map(select(. != null and . != "")) | join ("; ")) as \$type_comp
+                  | "- \(.description | gsub("^[[:space:]]+|[[:space:]]+$"; "") | gsub("\n"; "\n  "))\n  (\(\$type_comp))"
+JQ
+            )"
+      else
+        echo "- <missing changelog for PR ${pr_number}. Did you forget to run download-prs.sh?>"
+      fi
+
+      cat "$download_file" | yq -o json | jq -r "$(
+        cat <<-JQ
+          .[] | select(.number == $pr_number) | "  [PR \(.number)](\(.url))"
+JQ
+      )"
+
+      echo
+    fi
+  done
 done
