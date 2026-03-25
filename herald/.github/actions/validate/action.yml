@@ -1,0 +1,76 @@
+name: Herald Validate
+description: >
+  Validate changelog fragments in a pull request.
+  Checks that fragments parse correctly, that modified projects have fragments (--diff),
+  and that the PR number in each fragment matches the pull request (--pr).
+
+inputs:
+  version:
+    description: >
+      Herald flake ref. Use a git ref (tag, branch, or SHA) from the cardano-dev repository.
+    required: false
+    default: github:input-output-hk/cardano-dev
+  config:
+    description: Path to the herald config file, relative to the repository root.
+    required: false
+    default: .herald.yml
+  diff:
+    description: >
+      When 'true', check that every project with modified files has at least one
+      changelog fragment on this branch.
+    required: false
+    default: 'true'
+  pr:
+    description: >
+      When 'true', verify that the PR number in each new changelog fragment matches
+      the pull request number from the GitHub event context.
+    required: false
+    default: 'true'
+
+runs:
+  using: composite
+  steps:
+    - name: Detect PR number
+      id: pr-number
+      if: inputs.pr == 'true'
+      shell: bash
+      run: |
+        PR_NUMBER="${{ github.event.pull_request.number }}"
+        if [ -z "$PR_NUMBER" ]; then
+          echo "::warning::Could not detect PR number from event context, skipping --pr check"
+          echo "available=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "available=true" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Ensure origin/HEAD is set
+      shell: bash
+      run: |
+        if ! git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null; then
+          BASE_REF="${{ github.event.pull_request.base.ref }}"
+          if [ -n "$BASE_REF" ]; then
+            git symbolic-ref refs/remotes/origin/HEAD "refs/remotes/origin/$BASE_REF"
+          else
+            git remote set-head origin --auto
+          fi
+        fi
+
+    - name: Validate changelog fragments
+      shell: bash
+      run: |
+        ARGS="-c ${{ inputs.config }}"
+        VALIDATE_ARGS=""
+
+        if [ "${{ inputs.diff }}" = "true" ]; then
+          VALIDATE_ARGS="$VALIDATE_ARGS --diff"
+        fi
+
+        if [ "${{ inputs.pr }}" = "true" ] && [ "${{ steps.pr-number.outputs.available }}" = "true" ]; then
+          VALIDATE_ARGS="$VALIDATE_ARGS --pr ${{ steps.pr-number.outputs.number }}"
+        fi
+
+        echo "::group::Fetching herald"
+        HERALD="$(nix build --accept-flake-config "${{ inputs.version }}#herald" --no-link --print-out-paths)/bin/herald"
+        echo "::endgroup::"
+        "$HERALD" $ARGS validate $VALIDATE_ARGS

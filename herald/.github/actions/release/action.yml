@@ -1,0 +1,213 @@
+name: Herald Release
+description: >
+  Batch changelog fragments for a package, create a release commit and tag,
+  open a pull request on a release branch, and add a release changelog fragment
+  for the next cycle.
+
+inputs:
+  package:
+    description: Package name to release (must match a project in .herald.yml).
+    required: true
+  version:
+    description: >
+      Explicit version (A.B.C.D). If omitted, auto-computed from changelog
+      fragments and the current .cabal version.
+    required: false
+    default: ''
+  config:
+    description: Path to the herald config file, relative to the repository root.
+    required: false
+    default: .herald.yml
+  herald-ref:
+    description: Flake reference for the cardano-dev repository containing herald.
+    required: false
+    default: github:input-output-hk/cardano-dev
+  base-branch:
+    description: >
+      Branch to target for the release PR. If omitted, auto-detected from the
+      repository's default branch.
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Detect base branch
+      id: default-branch
+      shell: bash
+      run: |
+        DEFAULT="${{ inputs.base-branch }}"
+        if [ -z "$DEFAULT" ]; then
+          DEFAULT=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null \
+            | sed 's|refs/remotes/origin/||') || true
+        fi
+        if [ -z "$DEFAULT" ]; then
+          DEFAULT=$(git remote show origin 2>/dev/null \
+            | grep 'HEAD branch' | awk '{print $NF}') || true
+        fi
+        if [ -z "$DEFAULT" ]; then
+          echo "::error::Could not detect base branch"
+          exit 1
+        fi
+        echo "name=$DEFAULT" >> "$GITHUB_OUTPUT"
+
+    - name: Configure git
+      shell: bash
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+
+    - name: Fetch herald
+      id: herald
+      shell: bash
+      run: |
+        echo "::group::Fetching herald"
+        HERALD="$(nix build --accept-flake-config "${{ inputs.herald-ref }}#herald" --no-link --print-out-paths)/bin/herald"
+        echo "::endgroup::"
+        echo "bin=$HERALD" >> "$GITHUB_OUTPUT"
+
+    - name: Compute version
+      id: version
+      shell: bash
+      run: |
+        PACKAGE="${{ inputs.package }}"
+        HERALD="${{ steps.herald.outputs.bin }}"
+        CONFIG="-c ${{ inputs.config }}"
+
+        if [ -n "${{ inputs.version }}" ]; then
+          echo "value=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+        else
+          if ! VERSION=$($HERALD $CONFIG next "$PACKAGE"); then
+            echo "::error::herald next failed for $PACKAGE, see log above"
+            exit 1
+          fi
+          if [ -z "$VERSION" ]; then
+            echo "::error::Could not compute next version for $PACKAGE (empty output)."
+            exit 1
+          fi
+          echo "value=$VERSION" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Check tag does not exist
+      shell: bash
+      run: |
+        TAG="${{ inputs.package }}-${{ steps.version.outputs.value }}"
+        if git rev-parse "$TAG" >/dev/null 2>&1; then
+          echo "::error::Tag $TAG already exists locally"
+          exit 1
+        fi
+        if git ls-remote --tags origin "refs/tags/$TAG" | grep -q .; then
+          echo "::error::Tag $TAG already exists on remote"
+          exit 1
+        fi
+
+    - name: Create release branch
+      shell: bash
+      run: |
+        BRANCH="release/${{ inputs.package }}-${{ steps.version.outputs.value }}"
+        git checkout -b "$BRANCH"
+        echo "RELEASE_BRANCH=$BRANCH" >> "$GITHUB_ENV"
+        echo "RELEASE_TAG=${{ inputs.package }}-${{ steps.version.outputs.value }}" >> "$GITHUB_ENV"
+
+    - name: Batch changelog fragments
+      shell: bash
+      run: |
+        HERALD="${{ steps.herald.outputs.bin }}"
+        CONFIG="-c ${{ inputs.config }}"
+        VERSION_ARG=""
+        if [ -n "${{ inputs.version }}" ]; then
+          VERSION_ARG="--version ${{ inputs.version }}"
+        fi
+
+        $HERALD $CONFIG batch "${{ inputs.package }}" --commit-tag $VERSION_ARG
+
+    - name: Push release branch and tag
+      shell: bash
+      run: |
+        git push -q -u origin "$RELEASE_BRANCH"
+        git push -q origin "$RELEASE_TAG"
+
+    - name: Create pull request
+      id: pr
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        PACKAGE="${{ inputs.package }}"
+        VERSION="${{ steps.version.outputs.value }}"
+        DEFAULT_BRANCH="${{ steps.default-branch.outputs.name }}"
+
+        PR_URL=$(gh pr create \
+          --title "Release $PACKAGE $VERSION" \
+          --base "$DEFAULT_BRANCH" \
+          --head "$RELEASE_BRANCH" \
+          --body "Release in progress -- PR body will be updated shortly.")
+
+        PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$')
+        echo "url=$PR_URL" >> "$GITHUB_OUTPUT"
+        echo "number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+
+    - name: Add release changelog fragment
+      shell: bash
+      run: |
+        HERALD="${{ steps.herald.outputs.bin }}"
+        CONFIG="-c ${{ inputs.config }}"
+        PACKAGE="${{ inputs.package }}"
+        VERSION="${{ steps.version.outputs.value }}"
+        PR_NUMBER="${{ steps.pr.outputs.number }}"
+
+        $HERALD $CONFIG new \
+          --project "$PACKAGE" \
+          --kind release \
+          --description "Release $PACKAGE $VERSION" \
+          --pr "$PR_NUMBER"
+
+        git add .changes/
+        git commit --no-verify --no-gpg-sign \
+          -m "Add release changelog fragment for $PACKAGE $VERSION"
+        git push
+
+    - name: Update PR body
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        PACKAGE="${{ inputs.package }}"
+        VERSION="${{ steps.version.outputs.value }}"
+        DEFAULT_BRANCH="${{ steps.default-branch.outputs.name }}"
+        TAG="$RELEASE_TAG"
+        BRANCH="$RELEASE_BRANCH"
+        PR_NUMBER="${{ steps.pr.outputs.number }}"
+        COMMIT_COUNT=$(git rev-list --count "origin/${DEFAULT_BRANCH}..HEAD")
+        # The tag is on the batch commit, which is one before the release fragment
+        TAG_OFFSET=$((COMMIT_COUNT - 1))
+
+        cat > /tmp/pr-body.md <<EOF
+        ## Summary
+
+        - Batch changelog fragments for \`$PACKAGE\` into version \`$VERSION\`
+        - Update changelog file with a new release section
+        - Bump \`.cabal\` version to \`$VERSION\`
+        - Remove consumed changelog fragments
+        - Add release changelog fragment for the next cycle
+        - Tag: \`$TAG\`
+
+        ## Before merging
+
+        The commits in this PR are **unsigned**. To sign them before merging, run:
+
+        \`\`\`bash
+        git fetch origin $BRANCH
+        git checkout $BRANCH
+        git rebase HEAD~${COMMIT_COUNT} --exec 'git commit --amend --no-edit -S'
+        git tag -f $TAG HEAD~${TAG_OFFSET}
+        git push --force-with-lease origin $BRANCH
+        git push --force origin $TAG
+        \`\`\`
+
+        Generated with [herald](https://github.com/input-output-hk/cardano-dev)
+        EOF
+        sed -i 's/^        //' /tmp/pr-body.md
+        gh pr edit "$PR_NUMBER" --body-file /tmp/pr-body.md
+
+        echo "::notice::Release PR: ${{ steps.pr.outputs.url }}"
