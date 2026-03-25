@@ -1,0 +1,186 @@
+cabal-version: 3.12
+name: herald
+version: 0.1.0.0
+synopsis: Changelog and release automation for PVP-versioned Haskell projects
+license: Apache-2.0
+author: Input Output Global
+maintainer: operations@iohk.io
+build-type: Simple
+
+common warnings
+  ghc-options:
+    -Wall
+    -Wredundant-constraints
+    -Wincomplete-record-updates
+    -Wincomplete-uni-patterns
+
+common lang
+  default-language: GHC2021
+  default-extensions:
+    LambdaCase
+    OverloadedStrings
+
+library
+  import: warnings, lang
+  hs-source-dirs: src
+  default-extensions:
+    NoImplicitPrelude
+
+  autogen-modules:
+    PackageInfo_herald
+    Paths_herald
+
+  other-modules:
+    PackageInfo_herald
+    Paths_herald
+
+  exposed-modules:
+    Herald.Cabal
+    Herald.Changelog
+    Herald.Command.Batch
+    Herald.Command.Init
+    Herald.Command.New
+    Herald.Command.Next
+    Herald.Command.Validate
+    Herald.Config
+    Herald.Fragment
+    Herald.Fragment.Read
+    Herald.Fragment.Render
+    Herald.Git
+    Herald.Git.Repository
+    Herald.Pvp
+    Herald.Terminal
+    Herald.Types
+
+  build-depends:
+    aeson,
+    base >=4.14 && <5,
+    containers,
+    directory,
+    filepath,
+    haskeline,
+    optparse-applicative,
+    process,
+    rio,
+    safe-exceptions,
+    text,
+    time,
+    transformers,
+    yaml,
+
+executable herald
+  import: warnings, lang
+  hs-source-dirs: app
+  main-is: Main.hs
+  autogen-modules:
+    PackageInfo_herald
+    Paths_herald
+
+  other-modules:
+    PackageInfo_herald
+    Paths_herald
+
+  build-depends:
+    base >=4.14 && <5,
+    herald,
+    optparse-applicative,
+    text,
+    time,
+
+library herald-test-lib
+  import: warnings, lang
+  visibility: private
+  hs-source-dirs: test-lib
+  autogen-modules:
+    PackageInfo_herald
+    Paths_herald
+
+  other-modules:
+    PackageInfo_herald
+    Paths_herald
+
+  exposed-modules:
+    Test.Herald.Assertions
+    Test.Herald.Fixtures
+
+  build-depends:
+    base >=4.14 && <5,
+    containers,
+    hedgehog,
+    herald,
+    text,
+    time,
+
+test-suite herald-test
+  import: warnings, lang
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is: Main.hs
+  autogen-modules:
+    PackageInfo_herald
+    Paths_herald
+
+  other-modules:
+    PackageInfo_herald
+    Paths_herald
+    Test.Herald.Cabal
+    Test.Herald.Changelog
+    Test.Herald.Config
+    Test.Herald.Fragment
+    Test.Herald.Git
+    Test.Herald.Pvp
+    Test.Herald.Render
+    Test.Herald.Terminal
+
+  build-depends:
+    base >=4.14 && <5,
+    bytestring,
+    containers,
+    directory,
+    filepath,
+    hedgehog,
+    hedgehog-extras,
+    herald,
+    herald:herald-test-lib,
+    tasty,
+    tasty-hedgehog,
+    temporary,
+    text,
+    time,
+    yaml,
+
+test-suite herald-test-e2e
+  import: warnings, lang
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test-e2e
+  main-is: Main.hs
+  autogen-modules:
+    PackageInfo_herald
+    Paths_herald
+
+  other-modules:
+    PackageInfo_herald
+    Paths_herald
+    Test.Herald.E2E.Batch
+    Test.Herald.E2E.Fixtures
+    Test.Herald.E2E.Fragment
+    Test.Herald.E2E.Init
+    Test.Herald.E2E.Next
+    Test.Herald.E2E.Validate
+
+  build-depends:
+    base >=4.14 && <5,
+    containers,
+    directory,
+    filepath,
+    hedgehog,
+    hedgehog-extras,
+    herald,
+    herald:herald-test-lib,
+    process,
+    tasty,
+    tasty-hedgehog,
+    temporary,
+    text,
+    time,
+    yaml,

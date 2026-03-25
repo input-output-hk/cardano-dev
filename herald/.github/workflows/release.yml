@@ -1,0 +1,52 @@
+# Example workflow -- copy this into the consuming repository's .github/workflows/
+#
+# Triggered manually via the GitHub Actions UI or CLI:
+#   gh workflow run release.yml -f package=my-package
+#   gh workflow run release.yml -f package=my-package -f version=2.0.0.0
+#
+# What it does:
+#   1. Batches changelog fragments into a new changelog section
+#   2. Bumps the .cabal version (auto-computed or explicit)
+#   3. Creates a release commit and PACKAGE-VERSION tag
+#   4. Adds a release changelog fragment for the next cycle
+#   5. Pushes to a release/PACKAGE-VERSION branch
+#   6. Opens a PR with instructions for signing the commits
+
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: Package name to release (must match a project in .herald.yml)
+        required: true
+        type: string
+      version:
+        description: Explicit version (A.B.C.D). Leave empty to auto-compute.
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: cachix/install-nix-action@v30
+        with:
+          extra_nix_config: |
+            trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= hydra.iohk.io:f/Ea+s+dFdN+3Y/G+FDgSq+a5NEWhJGzdjvKNGv0/EQ=
+            substituters = https://cache.iog.io/ https://cache.nixos.org/
+
+      - uses: input-output-hk/cardano-dev/herald/.github/actions/release@main
+        with:
+          package: ${{ inputs.package }}
+          version: ${{ inputs.version }}
+          # herald-ref: github:input-output-hk/cardano-dev  # default
+          # config: .herald.yml                               # default
