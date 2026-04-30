@@ -135,7 +135,7 @@
             aarch64-linux =
               heraldProject.projectCross.aarch64-multiplatform-musl.hsPkgs.herald.components.exes.herald;
           }
-          // lib.optionalAttrs (system == "x86_64-darwin" || system == "aarch64-darwin") {
+          // lib.optionalAttrs (system == "aarch64-darwin") {
             ${system} = heraldExe;
           };
         checks =
