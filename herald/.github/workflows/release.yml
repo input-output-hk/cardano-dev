@@ -25,28 +25,32 @@ on:
         description: Explicit version (A.B.C.D). Leave empty to auto-compute.
         required: false
         type: string
-
-permissions:
-  contents: write
-  pull-requests: write
+      branch:
+        description: Branch to release from and target for the PR. Leave empty to use the branch selected above.
+        required: false
+        type: string
 
 jobs:
   release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.branch || github.ref_name }}
           fetch-depth: 0
 
       - uses: cachix/install-nix-action@v30
         with:
           extra_nix_config: |
-            trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= hydra.iohk.io:f/Ea+s+dFdN+3Y/G+FDgSq+a5NEWhJGzdjvKNGv0/EQ=
-            substituters = https://cache.iog.io/ https://cache.nixos.org/
+            accept-flake-config = true
 
       - uses: input-output-hk/cardano-dev/herald/.github/actions/release@main
         with:
           package: ${{ inputs.package }}
           version: ${{ inputs.version }}
+          base-branch: ${{ inputs.branch || github.ref_name }}
           # herald-ref: github:input-output-hk/cardano-dev  # default
           # config: .herald.yml                               # default
