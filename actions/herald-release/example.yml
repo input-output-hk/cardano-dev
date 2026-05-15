@@ -47,7 +47,7 @@ jobs:
           extra_nix_config: |
             accept-flake-config = true
 
-      - uses: input-output-hk/cardano-dev/herald/.github/actions/release@main
+      - uses: input-output-hk/cardano-dev/actions/herald-release@main
         with:
           package: ${{ inputs.package }}
           version: ${{ inputs.version }}

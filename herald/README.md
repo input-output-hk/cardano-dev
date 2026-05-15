@@ -203,17 +203,23 @@ Both use nix to run Herald, so no Haskell toolchain setup is needed.
 
 ### Validate changelogs on PRs
 
-Copy `.github/workflows/validate-changelogs.yml` to your repository, or
+See [`../../actions/herald-validate/example.yml`](../../actions/herald-validate/example.yml) for a ready-to-copy workflow, or
 reference the composite action directly:
 
 ```yaml
-name: Validate Changelogs
+name: Check changelog fragments
+
+permissions:
+  contents: read
 
 on:
+  merge_group:
   pull_request:
+    types: [opened, synchronize, ready_for_review]
 
 jobs:
   validate:
+    if: ${{ github.event_name != 'merge_group' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -223,10 +229,9 @@ jobs:
       - uses: cachix/install-nix-action@v30
         with:
           extra_nix_config: |
-            trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= hydra.iohk.io:f/Ea+s+dFdN+3Y/G+FDgSq+a5NEWhJGzdjvKNGv0/EQ=
-            substituters = https://cache.iog.io/ https://cache.nixos.org/
+            accept-flake-config = true
 
-      - uses: input-output-hk/cardano-dev/herald/.github/actions/validate@main
+      - uses: input-output-hk/cardano-dev/actions/herald-validate@main
         # with:
         #   config: .herald.yml     # default
         #   diff: 'true'            # default -- check modified projects have fragments
@@ -240,8 +245,9 @@ The validate action:
 
 ### Release workflow
 
-Copy `.github/workflows/release.yml` to your repository, or reference the
-composite action directly. Trigger via the GitHub UI or CLI:
+See [`../../actions/herald-release/example.yml`](../../actions/herald-release/example.yml) for a ready-to-copy workflow, or
+reference the composite action directly.
+Trigger via the GitHub UI or CLI:
 
 ```bash
 gh workflow run release.yml -f package=cardano-api
@@ -262,29 +268,33 @@ on:
         description: Explicit version (A.B.C.D). Leave empty to auto-compute.
         required: false
         type: string
-
-permissions:
-  contents: write
-  pull-requests: write
+      branch:
+        description: Branch to release from and target for the PR. Leave empty to use the branch selected above.
+        required: false
+        type: string
 
 jobs:
   release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.branch || github.ref_name }}
           fetch-depth: 0
 
       - uses: cachix/install-nix-action@v30
         with:
           extra_nix_config: |
-            trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= hydra.iohk.io:f/Ea+s+dFdN+3Y/G+FDgSq+a5NEWhJGzdjvKNGv0/EQ=
-            substituters = https://cache.iog.io/ https://cache.nixos.org/
+            accept-flake-config = true
 
-      - uses: input-output-hk/cardano-dev/herald/.github/actions/release@main
+      - uses: input-output-hk/cardano-dev/actions/herald-release@main
         with:
           package: ${{ inputs.package }}
           version: ${{ inputs.version }}
+          base-branch: ${{ inputs.branch || github.ref_name }}
           # herald-ref: github:input-output-hk/cardano-dev  # default
           # config: .herald.yml                               # default
 ```
