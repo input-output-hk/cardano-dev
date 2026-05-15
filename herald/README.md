@@ -10,6 +10,10 @@ at release time, Herald collects fragments, computes the next PVP version, updat
 the changelog and version source (`.cabal` file or plain text version file), and
 can create a release commit with tag.
 
+## Specification
+
+Behavioural spec, requirements, and decision records live in [`spec/`](spec/requirements.md).
+
 ## Features
 
 - **PVP versioning** -- 4-part versions (A.B.C.D) with auto-bumping based on change kinds
