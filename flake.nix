@@ -2,7 +2,7 @@
   description = "A list of useful scripts for cardano-node development";
   inputs = {
     systems.url = "github:nix-systems/default";
-    haskellNix.url = "github:carbolymer/haskell.nix/remove-deprecated-pie-hardening";
+    haskellNix.url = "github:input-output-hk/haskell.nix";
     nixpkgs.follows = "haskellNix/nixpkgs-unstable";
     iohkNix.url = "github:input-output-hk/iohk-nix";
     utils.url = "github:numtide/flake-utils";
