@@ -1,7 +1,7 @@
 cabal-version: 3.12
 name: herald
 version: 0.1.0.0
-synopsis: Changelog and release automation for PVP-versioned Haskell projects
+synopsis: Changelog and release automation for PVP-versioned projects
 license: Apache-2.0
 author: Input Output Global
 maintainer: operations@iohk.io
@@ -51,6 +51,7 @@ library
     Herald.Pvp
     Herald.Terminal
     Herald.Types
+    Herald.VersionFile
 
   build-depends:
     aeson,
@@ -131,6 +132,7 @@ test-suite herald-test
     Test.Herald.Pvp
     Test.Herald.Render
     Test.Herald.Terminal
+    Test.Herald.VersionFile
 
   build-depends:
     base >=4.14 && <5,

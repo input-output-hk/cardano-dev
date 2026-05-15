@@ -23,7 +23,15 @@ import Herald.Fragment.Read (readProjectFragments)
 import Herald.Fragment.Render (renderSection)
 import Herald.Git (gitAdd, gitCommit, gitTag)
 import Herald.Pvp (Pvp (..), bumpPvp, showPvp)
-import Herald.Types (Config (..), Fragment (..), KindDef (..), ProjectConfig (..), throwHerald)
+import Herald.Types
+  ( Config (..)
+  , Fragment (..)
+  , KindDef (..)
+  , ProjectConfig (..)
+  , VersionSource (..)
+  , throwHerald
+  )
+import Herald.VersionFile (readVersionFile, writeVersionFile)
 
 -- | Result of a batch operation, for reporting to the user.
 data BatchResult = BatchResult
@@ -31,7 +39,7 @@ data BatchResult = BatchResult
   , batchResultPackage :: !Text
   , batchResultFragments :: ![FilePath]
   , batchResultChangelog :: !FilePath
-  , batchResultCabalFile :: !(Maybe FilePath)
+  , batchResultVersionPath :: !(Maybe FilePath)
   , batchResultChangesDir :: !FilePath
   }
   deriving Show
@@ -73,29 +81,27 @@ batchPackage config baseDir package explicitVersion day = do
 
       let packageFragments = map snd packagePairs
 
-      -- Compute version
-      version <- maybe (autoVersion projectConfig packageFragments) pure explicitVersion
+      -- Read version once for both auto-version and downgrade check
+      currentVersion <- readCurrentVersion baseDir projectConfig
 
-      -- Warn if explicit version is a downgrade
-      forM_ (projectCabalFile projectConfig) $ \cf -> do
-        currentVersion <- readCabalVersion (baseDir </> cf)
-        forM_ currentVersion $ \cv ->
-          when (version < cv)
-            . throwHerald
-            $ "Version "
-            <> showPvp version
-            <> " is lower than current "
-            <> showPvp cv
-            <> " in "
-            <> cf
+      -- Compute version
+      version <- maybe (autoVersion currentVersion packageFragments) pure explicitVersion
+
+      -- Reject explicit version that would be a downgrade
+      forM_ currentVersion $ \cv ->
+        when (version < cv)
+          . throwHerald
+          $ "Version "
+          <> showPvp version
+          <> " is lower than current "
+          <> showPvp cv
 
       -- Render section and prepend to changelog
       let section = renderSection config version day packageFragments
       prependSection (baseDir </> projectChangelog projectConfig) section
 
-      -- Update .cabal version (if cabal-file is configured)
-      forM_ (projectCabalFile projectConfig) $ \cf ->
-        writeCabalVersion (baseDir </> cf) version
+      -- Update version in the appropriate file
+      writeVersion baseDir projectConfig version
 
       -- Remove processed fragment files
       forM_ packagePairs $ \(file, _) ->
@@ -108,18 +114,17 @@ batchPackage config baseDir package explicitVersion day = do
           , batchResultPackage = package
           , batchResultFragments = map fst packagePairs
           , batchResultChangelog = baseDir </> projectChangelog projectConfig
-          , batchResultCabalFile = (baseDir </>) <$> projectCabalFile projectConfig
+          , batchResultVersionPath = versionFilePath baseDir projectConfig
           , batchResultChangesDir = configChangesDir config
           }
  where
-  autoVersion projectConfig packageFragments = do
-    cabalPath <-
-      maybe (throwHerald "No cabal-file configured; use --version to set version explicitly") pure
-        $ projectCabalFile projectConfig
-    currentVersion <-
-      readCabalVersion (baseDir </> cabalPath)
-        >>= maybe (throwHerald "Could not read current version from .cabal") pure
-    pure . bumpPvp (computeMaxBump config packageFragments) $ currentVersion
+  autoVersion currentVersion packageFragments = do
+    cv <-
+      maybe
+        (throwHerald "No version source configured; use --version to set version explicitly")
+        pure
+        currentVersion
+    pure . bumpPvp (computeMaxBump config packageFragments) $ cv
 
 -- | Compute the maximum bump level from a list of fragments.
 computeMaxBump :: Config -> [Fragment] -> Pvp
@@ -130,6 +135,27 @@ computeMaxBump config frags =
         [] -> Pvp (0 :| [0, 0, 1]) -- default: patch bump
         b : bs -> foldl' max b bs
 
+-- | Read the current version from whichever source is configured.
+readCurrentVersion :: FilePath -> ProjectConfig -> IO (Maybe Pvp)
+readCurrentVersion baseDir projectConfig = case projectVersionSource projectConfig of
+  Just (CabalFile cabalFile) -> readCabalVersion $ baseDir </> cabalFile
+  Just (VersionFile versionFile) -> Just <$> readVersionFile (baseDir </> versionFile)
+  Nothing -> pure Nothing
+
+-- | Write the version to whichever source is configured.
+writeVersion :: FilePath -> ProjectConfig -> Pvp -> IO ()
+writeVersion baseDir projectConfig version = case projectVersionSource projectConfig of
+  Just (CabalFile cabalFile) -> writeCabalVersion (baseDir </> cabalFile) version
+  Just (VersionFile versionFile) -> writeVersionFile (baseDir </> versionFile) version
+  Nothing -> pure ()
+
+-- | Absolute path to the version file (cabal or plain text), if configured.
+versionFilePath :: FilePath -> ProjectConfig -> Maybe FilePath
+versionFilePath baseDir projectConfig = case projectVersionSource projectConfig of
+  Just (CabalFile cabalFile) -> Just $ baseDir </> cabalFile
+  Just (VersionFile versionFile) -> Just $ baseDir </> versionFile
+  Nothing -> Nothing
+
 -- | Stage batch changes, commit, and optionally tag.
 commitBatchResult :: FilePath -> BatchResult -> CommitMode -> IO ()
 commitBatchResult _ _ NoCommit = pure ()
@@ -139,7 +165,7 @@ commitBatchResult baseDir result mode = do
       filesToStage =
         fragmentPaths
           <> [batchResultChangelog result]
-          <> maybeToList (batchResultCabalFile result)
+          <> maybeToList (batchResultVersionPath result)
       pkg = T.unpack $ batchResultPackage result
       ver = showPvp $ batchResultVersion result
       msg = "Release " <> pkg <> "-" <> ver

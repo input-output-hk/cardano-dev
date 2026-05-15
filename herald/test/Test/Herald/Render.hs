@@ -3,7 +3,6 @@ module Test.Herald.Render (tests) where
 import Data.Text qualified as T
 
 import Hedgehog (Property)
-import Hedgehog qualified as H
 import Hedgehog.Extras qualified as H
 import Test.Herald.Assertions (shouldContain, shouldNotContain)
 import Test.Herald.Fixtures (testConfig, testDay, testVersion)
@@ -68,7 +67,7 @@ prop_sorted_by_pr = H.propertyOnce $ do
   result `shouldContain` "PR 42"
   result `shouldContain` "PR 99"
   -- PR 99 should appear before PR 42 (shorter prefix means earlier position)
-  H.assert $ T.length (fst idx99) < T.length (fst idx42)
+  H.assertWith (T.length $ fst idx99, T.length $ fst idx42) $ uncurry (<)
 
 -- | Fragments with only non-notable kinds are excluded from the rendered output.
 prop_non_notable_excluded :: Property

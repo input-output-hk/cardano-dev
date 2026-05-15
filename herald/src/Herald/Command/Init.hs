@@ -14,7 +14,14 @@ import System.FilePath (dropExtension, takeExtension, (</>))
 
 import Herald.Git (detectGitRepo)
 import Herald.Pvp (showPvp)
-import Herald.Types (Config (..), KindDef (..), ProjectConfig (..), defaultKinds, throwHerald)
+import Herald.Types
+  ( Config (..)
+  , KindDef (..)
+  , ProjectConfig (..)
+  , VersionSource (..)
+  , defaultKinds
+  , throwHerald
+  )
 
 -- | Write text to a file with explicit UTF-8 encoding, avoiding locale issues.
 writeUtf8 :: FilePath -> Text -> IO ()
@@ -86,7 +93,8 @@ renderCommentedConfig config =
        , "#"
        , "# Each project needs:"
        , "#   changelog:  path to the project's CHANGELOG.md (relative to repo root)"
-       , "#   cabal-file: (optional) path to the project's .cabal file (version is read/updated here)"
+       , "#   cabal-file:   (optional) path to the project's .cabal file (version is read/updated here)"
+       , "#   version-file: (optional) path to a plain-text version file (alternative to cabal-file)"
        , "projects:"
        ]
     <> renderProjects (configProjects config)
@@ -103,11 +111,14 @@ renderKinds = concatMap renderKind . Map.toAscList
 renderProjects :: Map Text ProjectConfig -> [Text]
 renderProjects = concatMap renderProject . Map.toAscList
  where
-  renderProject (name, pc) =
+  renderProject (name, projectConfig) =
     [ "  " <> name <> ":"
-    , "    changelog: " <> T.pack (projectChangelog pc)
+    , "    changelog: " <> T.pack (projectChangelog projectConfig)
     ]
-      <> maybe [] (\cf -> ["    cabal-file: " <> T.pack cf]) (projectCabalFile pc)
+      <> case projectVersionSource projectConfig of
+        Just (CabalFile cabalFile) -> ["    cabal-file: " <> T.pack cabalFile]
+        Just (VersionFile versionFile) -> ["    version-file: " <> T.pack versionFile]
+        Nothing -> []
 
 -- | Render a template changelog fragment with example values.
 renderTemplate :: Text
@@ -158,7 +169,7 @@ probeRootProject baseDir = do
       ( name
       , ProjectConfig
           { projectChangelog = "CHANGELOG.md"
-          , projectCabalFile = Just cf
+          , projectVersionSource = Just $ CabalFile cf
           }
       )
 
@@ -170,11 +181,14 @@ probeSubProject baseDir entry = runMaybeT $ do
   cabalFile <- liftIO . findSingleCabalFile $ baseDir </> entry
   let name = maybe (T.pack entry) (T.pack . dropExtension) cabalFile
   guard . not $ T.null name
+  let versionSource = case cabalFile of
+        Just cf -> Just . CabalFile $ entry </> cf
+        Nothing -> Just . VersionFile $ entry </> "version.txt"
   pure
     ( name
     , ProjectConfig
         { projectChangelog = entry </> "CHANGELOG.md"
-        , projectCabalFile = fmap (entry </>) cabalFile
+        , projectVersionSource = versionSource
         }
     )
 
