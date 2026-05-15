@@ -8,7 +8,7 @@ import System.Directory (createDirectoryIfMissing, doesFileExist)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 
-import Hedgehog (Property)
+import Hedgehog (Property, (===))
 import Hedgehog qualified as H
 import Hedgehog.Extras qualified as H
 import Test.Herald.Assertions (shouldContain)
@@ -17,7 +17,7 @@ import Test.Tasty.Hedgehog (testProperty)
 
 import Herald.Command.Init (initConfig)
 import Herald.Config (loadConfig)
-import Herald.Types (Config (..), HeraldException (..))
+import Herald.Types (Config (..), HeraldException (..), ProjectConfig (..), VersionSource (..))
 
 tests :: TestTree
 tests =
@@ -30,6 +30,8 @@ tests =
     , testProperty "re-init on existing config errors" prop_init_existing_config
     , testProperty "init with no remote fails" prop_init_no_remote
     , testProperty "init with HTTPS remote extracts slug" prop_init_https_remote
+    , testProperty "init sets version-file for dirs without .cabal" prop_init_version_file
+    , testProperty "init config comments mention version-file" prop_init_comments_version_file
     ]
 
 -- | Directories containing .cabal files with empty basenames (e.g. .ghc-wasm/.cabal)
@@ -48,8 +50,8 @@ prop_init_skips_empty_name = H.propertyOnce $ do
     initAndLoad tmpDir
 
   let projectNames = Map.keys $ configProjects config
-  H.assert $ "my-package" `elem` projectNames
-  H.assert $ "" `notElem` projectNames
+  H.assertWith projectNames $ elem "my-package"
+  H.assertWith projectNames $ notElem ""
 
 -- | Subdirectories without .cabal files are still discovered using their directory name.
 prop_init_non_cabal_dirs :: Property
@@ -63,8 +65,8 @@ prop_init_non_cabal_dirs = H.propertyOnce $ do
     initAndLoad tmpDir
 
   let projectNames = Map.keys $ configProjects config
-  H.assert $ "my-lib" `elem` projectNames
-  H.assert $ "my-docs" `elem` projectNames
+  H.assertWith projectNames $ elem "my-lib"
+  H.assertWith projectNames $ elem "my-docs"
 
 -- | A single .cabal file in the root produces one project named after that file.
 prop_init_root_project :: Property
@@ -75,7 +77,7 @@ prop_init_root_project = H.propertyOnce $ do
 
   let projects = Map.toList $ configProjects config
   case projects of
-    [(name, _)] -> H.assert $ name == "my-tool"
+    [(name, _)] -> name === "my-tool"
     _ -> H.failure
 
 -- | Init creates a _TEMPLATE.yml file containing the project and kind fields.
@@ -135,6 +137,36 @@ prop_init_https_remote = H.propertyOnce $ do
     initAndLoad tmpDir
 
   configGitRepo config `shouldContain` "https://github.com/MyOrg/my-repo"
+
+-- | Directories without .cabal files get version-file: <dir>/version.txt.
+prop_init_version_file :: Property
+prop_init_version_file = H.propertyOnce $ do
+  config <- H.evalIO $ withFakeGitDir "herald-init-vf" $ \tmpDir -> do
+    let withCabal = tmpDir </> "my-lib"
+        withoutCabal = tmpDir </> "my-action"
+    createDirectoryIfMissing True withCabal
+    createDirectoryIfMissing True withoutCabal
+    writeFile (withCabal </> "my-lib.cabal") "cabal-version: 3.0\nname: my-lib\nversion: 1.0.0.0\n"
+    -- my-action has no .cabal file
+    initAndLoad tmpDir
+
+  let projects = configProjects config
+  pcLib <- H.nothingFail $ Map.lookup "my-lib" projects
+  projectVersionSource pcLib === Just (CabalFile "my-lib/my-lib.cabal")
+  pcAction <- H.nothingFail $ Map.lookup "my-action" projects
+  projectVersionSource pcAction === Just (VersionFile "my-action/version.txt")
+
+-- | The generated .herald.yml raw text mentions version-file in the comments.
+prop_init_comments_version_file :: Property
+prop_init_comments_version_file = H.propertyOnce $ do
+  rawConfig <- H.evalIO $ withFakeGitDir "herald-init-comments" $ \tmpDir -> do
+    let withCabal = tmpDir </> "my-lib"
+    createDirectoryIfMissing True withCabal
+    writeFile (withCabal </> "my-lib.cabal") "cabal-version: 3.0\nname: my-lib\nversion: 1.0.0.0\n"
+    _ <- initConfig tmpDir (tmpDir </> ".herald.yml")
+    T.readFile $ tmpDir </> ".herald.yml"
+
+  rawConfig `shouldContain` "version-file"
 
 -------------------------------------------------------------------------------
 -- Helpers

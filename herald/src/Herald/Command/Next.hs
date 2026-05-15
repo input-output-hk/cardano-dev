@@ -14,7 +14,8 @@ import Herald.Command.Batch (computeMaxBump)
 import Herald.Fragment (validateFragment)
 import Herald.Fragment.Read (readProjectFragments)
 import Herald.Pvp (Pvp, bumpPvp)
-import Herald.Types (Config (..), ProjectConfig (..), throwHerald)
+import Herald.Types (Config (..), ProjectConfig (..), VersionSource (..), throwHerald)
+import Herald.VersionFile (readVersionFile)
 
 -- | Compute the next version for a package based on unreleased fragments.
 -- Validates all fragments first so that invalid fragments (unknown kinds, etc.)
@@ -26,8 +27,10 @@ nextVersion config baseDir package = do
       . Map.lookup package
       $ configProjects config
 
-  currentVersion <-
-    maybe (pure Nothing) (readCabalVersion . (baseDir </>)) $ projectCabalFile projectConfig
+  currentVersion <- case projectVersionSource projectConfig of
+    Just (CabalFile cabalFile) -> readCabalVersion $ baseDir </> cabalFile
+    Just (VersionFile versionFile) -> Just <$> readVersionFile (baseDir </> versionFile)
+    Nothing -> pure Nothing
 
   packagePairs <- readProjectFragments config baseDir package
 

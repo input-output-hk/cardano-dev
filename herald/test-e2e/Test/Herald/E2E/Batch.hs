@@ -17,7 +17,13 @@ import Hedgehog (Property, (===))
 import Hedgehog qualified as H
 import Hedgehog.Extras qualified as H
 import Test.Herald.Assertions (shouldContain)
-import Test.Herald.E2E.Fixtures (setupBatchRepo, setupTestRepo)
+import Test.Herald.E2E.Fixtures
+  ( setupBatchRepo
+  , setupTestRepo
+  , setupVersionFileBatchRepo
+  , setupVersionFileRepo
+  , testConfigVersionFile
+  )
 import Test.Herald.Fixtures (pvp, testConfigMultiProject, testDay)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.Hedgehog (testProperty)
@@ -56,6 +62,14 @@ tests =
         prop_batch_mixed_valid_invalid_kinds
     , testProperty "missing CHANGELOG.md on disk is a hard error" prop_batch_missing_changelog
     , testProperty "missing .cabal file on disk is a hard error" prop_batch_missing_cabal_file
+    , testProperty "batch with version-file and auto-version" prop_batch_version_file_auto
+    , testProperty "batch with version-file and explicit version" prop_batch_version_file_explicit
+    , testProperty "batch --commit with version-file stages the file" prop_batch_version_file_commit
+    , testProperty "batch with version-file creates file if missing" prop_batch_version_file_creates
+    , testProperty "batch auto-version with missing version-file" prop_batch_version_file_auto_missing
+    , testProperty "batch version-file result has correct fields" prop_batch_version_file_result_fields
+    , testProperty "batch version-file downgrade is rejected" prop_batch_version_file_downgrade
+    , testProperty "batch --commit-tag with version-file" prop_batch_version_file_commit_tag
     ]
 
 -- | Explicit version (9.0.0.0) updates .cabal and changelog; only other-project fragments remain.
@@ -94,7 +108,7 @@ prop_batch_updates_changelog = H.propertyOnce $ do
   let idxNew = T.length . fst $ T.breakOn "## 8.5.0.0" changelog
       idxOld = T.length . fst $ T.breakOn "## 8.4.1.2" changelog
   H.annotate $ "New section at offset " <> show idxNew <> ", old at " <> show idxOld
-  H.assert $ idxNew < idxOld
+  H.assertWith (idxNew, idxOld) $ uncurry (<)
   changelog `shouldContain` "Previous change"
 
 -- | Full lifecycle: rendered changelog matches the expected format (R10).
@@ -110,7 +124,7 @@ prop_full_lifecycle = H.propertyOnce $ do
   -- Entries sorted by PR number descending: 99 before 42
   let idx42 = T.length . fst $ T.breakOn "PR 42" changelog
       idx99 = T.length . fst $ T.breakOn "PR 99" changelog
-  H.assert $ idx99 < idx42
+  H.assertWith (idx99, idx42) $ uncurry (<)
 
   changelog `shouldContain` "Fix serialization of Conway certificates"
   changelog `shouldContain` "(bugfix)"
@@ -131,7 +145,7 @@ prop_non_notable_filtering = H.propertyOnce $ do
 
   changelog `shouldContain` "## 1.0.0.1"
   H.annotate "Changelog should not contain non-notable entry text"
-  H.assert . not $ T.isInfixOf "Add generator helpers" changelog
+  H.assertWith changelog $ not . T.isInfixOf "Add generator helpers"
 
 -- | BatchResult contains the computed version, consumed fragment names, and file paths.
 prop_batch_result_fields :: Property
@@ -142,8 +156,8 @@ prop_batch_result_fields = H.propertyOnce $ do
 
   batchResultVersion result === pvp 8 5 0 0
   sort (batchResultFragments result) === ["42-fix-serialization.yml", "99-add-conway-support.yml"]
-  H.assert $ T.isSuffixOf "CHANGELOG.md" . T.pack $ batchResultChangelog result
-  H.assert $ maybe False (T.isSuffixOf ".cabal" . T.pack) $ batchResultCabalFile result
+  H.assertWith (batchResultChangelog result) $ T.isSuffixOf "CHANGELOG.md" . T.pack
+  H.assertWith (batchResultVersionPath result) $ maybe False (T.isSuffixOf ".cabal" . T.pack)
 
 -- | An explicit date appears in the changelog header instead of today's date.
 prop_batch_explicit_date :: Property
@@ -168,12 +182,12 @@ prop_batch_commit = H.propertyOnce $ do
   T.pack commitMsg `shouldContain` "Release cardano-api-8.5.0.0"
 
   let files = sort . filter (not . null) . lines $ changedFiles'
-  H.assert $ ".changes/42-fix-serialization.yml" `elem` files
-  H.assert $ ".changes/99-add-conway-support.yml" `elem` files
-  H.assert $ "cardano-api/CHANGELOG.md" `elem` files
-  H.assert $ "cardano-api/cardano-api.cabal" `elem` files
+  H.assertWith files $ elem ".changes/42-fix-serialization.yml"
+  H.assertWith files $ elem ".changes/99-add-conway-support.yml"
+  H.assertWith files $ elem "cardano-api/CHANGELOG.md"
+  H.assertWith files $ elem "cardano-api/cardano-api.cabal"
   -- Other project's files should NOT be in the commit
-  H.assert . not $ any (T.isPrefixOf "cardano-api-gen" . T.pack) files
+  H.assertWith files $ not . any (T.isPrefixOf "cardano-api-gen" . T.pack)
 
 -- | --commit-tag creates both a commit and a PACKAGE-VERSION tag.
 prop_batch_commit_tag :: Property
@@ -195,14 +209,14 @@ prop_batch_no_fragments = H.propertyOnce $ do
                 "empty-project"
                 ProjectConfig
                   { projectChangelog = "empty-project/CHANGELOG.md"
-                  , projectCabalFile = Nothing
+                  , projectVersionSource = Nothing
                   }
                 $ configProjects testConfigMultiProject
           }
   result <- H.evalIO $ setupTestRepo $ \tmpDir ->
     batchPackage configWithEmpty tmpDir "empty-project" Nothing testDay
 
-  H.assert $ isNothing result
+  H.assertWith result isNothing
 
 -- | Batching the same project twice: first succeeds, second returns Nothing (fragments consumed).
 prop_batch_twice :: Property
@@ -212,8 +226,8 @@ prop_batch_twice = H.propertyOnce $ do
     r2 <- batchPackage testConfigMultiProject tmpDir "cardano-api" Nothing testDay
     pure (r1, r2)
 
-  H.assert $ isJust first
-  H.assert $ isNothing second
+  H.assertWith first isJust
+  H.assertWith second isNothing
 
 -- | Explicit version lower than current is rejected as a hard error.
 prop_batch_downgrade :: Property
@@ -223,7 +237,7 @@ prop_batch_downgrade = H.propertyOnce $ do
     (batchPackage testConfigMultiProject tmpDir "cardano-api" (Just $ pvp 1 0 0 0) testDay >> pure False)
       `catch` \(HeraldException _) -> pure True
 
-  H.assert caught
+  H.assertWith caught id
 
 -- | Batching twice with fresh fragments each time produces two changelog sections.
 prop_batch_idempotent :: Property
@@ -259,7 +273,7 @@ prop_batch_no_cabal = H.propertyOnce $ do
                   ( "cardano-api"
                   , ProjectConfig
                       { projectChangelog = "cardano-api/CHANGELOG.md"
-                      , projectCabalFile = Nothing
+                      , projectVersionSource = Nothing
                       }
                   )
                 ]
@@ -269,7 +283,7 @@ prop_batch_no_cabal = H.propertyOnce $ do
     cl <- T.readFile $ tmpDir </> "cardano-api" </> "CHANGELOG.md"
     pure (r, cl)
 
-  H.assert $ isJust result
+  H.assertWith result isJust
   changelog `shouldContain` "## 2.0.0.0"
 
 -- | A fragment with an unknown kind causes batch to fail before modifying any files.
@@ -292,8 +306,8 @@ prop_batch_invalid_fragment = H.propertyOnce $ do
     changelogAfter <- T.readFile $ tmpDir </> "cardano-api" </> "CHANGELOG.md"
     pure (wasCaught, changelogBefore == changelogAfter)
 
-  H.assert caught
-  H.assert changelogUnchanged
+  H.assertWith caught id
+  H.assertWith changelogUnchanged id
 
 -- | Auto-version without a cabal-file configured is rejected because there is
 -- no current version to bump from.
@@ -307,7 +321,7 @@ prop_batch_auto_no_cabal = H.propertyOnce $ do
                   ( "cardano-api"
                   , ProjectConfig
                       { projectChangelog = "cardano-api/CHANGELOG.md"
-                      , projectCabalFile = Nothing
+                      , projectVersionSource = Nothing
                       }
                   )
                 ]
@@ -316,7 +330,7 @@ prop_batch_auto_no_cabal = H.propertyOnce $ do
     (batchPackage noCabalConfig tmpDir "cardano-api" Nothing testDay >> pure False)
       `catch` \(HeraldException _) -> pure True
 
-  H.assert caught
+  H.assertWith caught id
 
 -- | Auto-version fails when the .cabal file has no version: line, since there
 -- is no base version to compute the bump from.
@@ -342,7 +356,7 @@ prop_batch_auto_missing_version = H.propertyOnce $ do
     (batchPackage testConfigMultiProject tmpDir "cardano-api" Nothing testDay >> pure False)
       `catch` \(HeraldException _) -> pure True
 
-  H.assert caught
+  H.assertWith caught id
 
 -- | Explicit version equal to the current .cabal version is accepted -- the
 -- downgrade check only rejects strictly lower versions.
@@ -352,7 +366,7 @@ prop_batch_same_version = H.propertyOnce $ do
     -- Current version in setupTestRepo is 8.4.1.2
     batchPackage testConfigMultiProject tmpDir "cardano-api" (Just $ pvp 8 4 1 2) testDay
 
-  H.assert $ isJust result
+  H.assertWith result isJust
 
 -- | Batching a project that does not exist in the config is rejected.
 prop_batch_unknown_project :: Property
@@ -361,7 +375,7 @@ prop_batch_unknown_project = H.propertyOnce $ do
     (batchPackage testConfigMultiProject tmpDir "nonexistent" Nothing testDay >> pure False)
       `catch` \(HeraldException _) -> pure True
 
-  H.assert caught
+  H.assertWith caught id
 
 -- | When the .cabal file has no parseable version: line, the downgrade check
 -- is silently skipped because there is no current version to compare against.
@@ -388,7 +402,7 @@ prop_batch_downgrade_skipped_missing_version = H.propertyOnce $ do
     -- 1.0.0.0 could be a downgrade, but no current version to compare against
     batchPackage testConfigMultiProject tmpDir "cardano-api" (Just $ pvp 1 0 0 0) testDay
 
-  H.assert $ isJust result
+  H.assertWith result isJust
 
 -- | A fragment mixing valid and invalid kinds is rejected -- a valid kind does
 -- not mask an invalid one.
@@ -406,7 +420,7 @@ prop_batch_mixed_valid_invalid_kinds = H.propertyOnce $ do
     (batchPackage testConfigMultiProject tmpDir "cardano-api" (Just $ pvp 9 0 0 0) testDay >> pure False)
       `catch` \(HeraldException _) -> pure True
 
-  H.assert caught
+  H.assertWith caught id
 
 -- | Batching when CHANGELOG.md does not exist on disk is a hard error.
 prop_batch_missing_changelog :: Property
@@ -431,7 +445,7 @@ prop_batch_missing_changelog = H.propertyOnce $ do
     (batchPackage testConfigMultiProject tmpDir "cardano-api" Nothing testDay >> pure False)
       `catch` \(_ :: SomeException) -> pure True
 
-  H.assert caught
+  H.assertWith caught id
 
 -- | Batching when the configured .cabal file does not exist on disk is a hard error.
 prop_batch_missing_cabal_file :: Property
@@ -455,7 +469,129 @@ prop_batch_missing_cabal_file = H.propertyOnce $ do
     (batchPackage testConfigMultiProject tmpDir "cardano-api" Nothing testDay >> pure False)
       `catch` \(_ :: SomeException) -> pure True
 
-  H.assert caught
+  H.assertWith caught id
+
+-- | Batch with version-file and auto-version reads the file, bumps, and writes back.
+prop_batch_version_file_auto :: Property
+prop_batch_version_file_auto = H.propertyOnce $ do
+  (versionContent, changelog) <- H.evalIO $ setupVersionFileRepo $ \tmpDir -> do
+    Just _ <- batchPackage testConfigVersionFile tmpDir "my-action" Nothing testDay
+    versionContent <- readFile $ tmpDir </> "my-action" </> "version.txt"
+    changelog <- T.readFile $ tmpDir </> "my-action" </> "CHANGELOG.md"
+    pure (versionContent, changelog)
+
+  -- feature bump on 1.0.0.0 -> 1.0.1.0
+  T.pack versionContent `shouldContain` "1.0.1.0"
+  changelog `shouldContain` "## 1.0.1.0"
+
+-- | Batch with version-file and explicit version writes the given version.
+prop_batch_version_file_explicit :: Property
+prop_batch_version_file_explicit = H.propertyOnce $ do
+  (versionContent, changelog) <- H.evalIO $ setupVersionFileRepo $ \tmpDir -> do
+    Just _ <- batchPackage testConfigVersionFile tmpDir "my-action" (Just $ pvp 2 0 0 0) testDay
+    versionContent <- readFile $ tmpDir </> "my-action" </> "version.txt"
+    changelog <- T.readFile $ tmpDir </> "my-action" </> "CHANGELOG.md"
+    pure (versionContent, changelog)
+
+  T.pack versionContent `shouldContain` "2.0.0.0"
+  changelog `shouldContain` "## 2.0.0.0"
+
+-- | Batch --commit with version-file stages the version file in the commit.
+prop_batch_version_file_commit :: Property
+prop_batch_version_file_commit = H.propertyOnce $ do
+  committedFiles <- H.evalIO $ setupVersionFileBatchRepo $ \tmpDir -> do
+    Just result <- batchPackage testConfigVersionFile tmpDir "my-action" Nothing testDay
+    commitBatchResult tmpDir result Commit
+    readGit tmpDir ["diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"]
+
+  T.pack committedFiles `shouldContain` "my-action/version.txt"
+  T.pack committedFiles `shouldContain` "my-action/CHANGELOG.md"
+
+-- | Batch with version-file creates the file if it does not exist (explicit version).
+prop_batch_version_file_creates :: Property
+prop_batch_version_file_creates = H.propertyOnce $ do
+  (versionContent, changelog) <- H.evalIO $ withSystemTempDirectory "herald-vf-create" $ \tmpDir -> do
+    let changesDir = tmpDir </> ".changes"
+        actionDir = tmpDir </> "my-action"
+    createDirectoryIfMissing True changesDir
+    createDirectoryIfMissing True actionDir
+    -- No version.txt created -- batch should create it
+    T.writeFile (actionDir </> "CHANGELOG.md") "## Old\n\n- Previous\n"
+    Yaml.encodeFile
+      (changesDir </> "10-add-cache.yml")
+      Fragment
+        { fragmentProject = "my-action"
+        , fragmentKinds = ["feature"]
+        , fragmentDescription = "Add caching"
+        , fragmentPR = 10
+        }
+    Just _ <- batchPackage testConfigVersionFile tmpDir "my-action" (Just $ pvp 1 0 0 0) testDay
+    versionContent <- readFile $ actionDir </> "version.txt"
+    changelog <- T.readFile $ actionDir </> "CHANGELOG.md"
+    pure (versionContent, changelog)
+
+  T.pack versionContent `shouldContain` "1.0.0.0"
+  changelog `shouldContain` "## 1.0.0.0"
+
+-- | Batch auto-version with missing version-file treats it as 0.0.0.0 and creates the file.
+prop_batch_version_file_auto_missing :: Property
+prop_batch_version_file_auto_missing = H.propertyOnce $ do
+  (versionContent, changelog) <- H.evalIO $ withSystemTempDirectory "herald-vf-auto-miss" $ \tmpDir -> do
+    let changesDir = tmpDir </> ".changes"
+        actionDir = tmpDir </> "my-action"
+    createDirectoryIfMissing True changesDir
+    createDirectoryIfMissing True actionDir
+    -- No version.txt - should be treated as 0.0.0.0
+    T.writeFile (actionDir </> "CHANGELOG.md") "## Old\n\n- Previous\n"
+    Yaml.encodeFile
+      (changesDir </> "10-add-cache.yml")
+      Fragment
+        { fragmentProject = "my-action"
+        , fragmentKinds = ["feature"]
+        , fragmentDescription = "Add caching"
+        , fragmentPR = 10
+        }
+    Just _ <- batchPackage testConfigVersionFile tmpDir "my-action" Nothing testDay
+    versionContent <- readFile $ actionDir </> "version.txt"
+    changelog <- T.readFile $ actionDir </> "CHANGELOG.md"
+    pure (versionContent, changelog)
+
+  -- feature bump on 0.0.0.0 -> 0.0.1.0
+  T.pack versionContent `shouldContain` "0.0.1.0"
+  changelog `shouldContain` "## 0.0.1.0"
+
+-- | BatchResult for a version-file project contains the version file path.
+prop_batch_version_file_result_fields :: Property
+prop_batch_version_file_result_fields = H.propertyOnce $ do
+  result <- H.evalIO $ setupVersionFileRepo $ \tmpDir ->
+    batchPackage testConfigVersionFile tmpDir "my-action" Nothing testDay
+
+  br <- H.nothingFail result
+  batchResultPackage br === "my-action"
+  -- feature bump on 1.0.0.0 -> 1.0.1.0
+  batchResultVersion br === pvp 1 0 1 0
+  H.assertWith (batchResultChangelog br) $ T.isSuffixOf "my-action/CHANGELOG.md" . T.pack
+  H.assertWith (batchResultVersionPath br) $
+    maybe False (T.isSuffixOf "my-action/version.txt" . T.pack)
+
+-- | Explicit version lower than current version-file is rejected.
+prop_batch_version_file_downgrade :: Property
+prop_batch_version_file_downgrade = H.propertyOnce $ do
+  caught <- H.evalIO $ setupVersionFileRepo $ \tmpDir ->
+    -- version.txt has 1.0.0.0; requesting 0.5.0.0 is a downgrade
+    (batchPackage testConfigVersionFile tmpDir "my-action" (Just $ pvp 0 5 0 0) testDay >> pure False)
+      `catch` \(HeraldException _) -> pure True
+  H.assertWith caught id
+
+-- | --commit-tag with version-file creates a commit and a tag.
+prop_batch_version_file_commit_tag :: Property
+prop_batch_version_file_commit_tag = H.propertyOnce $ do
+  tags <- H.evalIO $ setupVersionFileBatchRepo $ \tmpDir -> do
+    Just result <- batchPackage testConfigVersionFile tmpDir "my-action" Nothing testDay
+    commitBatchResult tmpDir result CommitTag
+    readGit tmpDir ["tag", "-l"]
+
+  T.pack tags `shouldContain` "my-action-1.0.1.0"
 
 -------------------------------------------------------------------------------
 -- Helpers

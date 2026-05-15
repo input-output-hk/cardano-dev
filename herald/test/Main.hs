@@ -8,6 +8,7 @@ import Test.Herald.Git qualified as Git
 import Test.Herald.Pvp qualified as Pvp
 import Test.Herald.Render qualified as Render
 import Test.Herald.Terminal qualified as Terminal
+import Test.Herald.VersionFile qualified as VersionFile
 import Test.Tasty (defaultMain, testGroup)
 
 main :: IO ()
@@ -23,4 +24,5 @@ main =
       , Changelog.tests
       , Git.tests
       , Terminal.tests
+      , VersionFile.tests
       ]

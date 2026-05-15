@@ -44,8 +44,8 @@ prop_create_fragment_multi_project = H.propertyOnce $ do
     assertFileExists p2
     pure (p1, p2)
 
-  H.assert $ T.isSuffixOf ".yml" $ T.pack path1
-  H.assert $ T.isSuffixOf ".yml" $ T.pack path2
+  H.assertWith path1 $ T.isSuffixOf ".yml" . T.pack
+  H.assertWith path2 $ T.isSuffixOf ".yml" . T.pack
 
 -- | Spaces in description are converted to hyphens in the filename (no spaces in filenames).
 prop_create_fragment_spaces :: Property
@@ -56,7 +56,7 @@ prop_create_fragment_spaces = H.propertyOnce $ do
     assertFileExists p
     pure p
 
-  H.assert $ notElem ' ' $ takeFileName path
+  H.assertWith (takeFileName path) $ notElem ' '
 
 -- | _TEMPLATE.yml is not returned by readAllFragments.
 prop_template_skipped :: Property
@@ -68,7 +68,7 @@ prop_template_skipped = H.propertyOnce $ do
     readAllFragments testConfigMultiProject tmpDir
 
   let names = map fst fragments
-  H.assert $ "_TEMPLATE.yml" `notElem` names
+  H.assertWith names $ notElem "_TEMPLATE.yml"
 
 -- | Creating a fragment for a PR that already has one errors and names the existing file.
 prop_duplicate_fragment :: Property
@@ -96,7 +96,7 @@ prop_cross_project_duplicate_pr = H.propertyOnce $ do
     assertFileExists origPath
     pure (p, origPath)
 
-  H.assert $ path1 /= path2
+  H.assertWith (path1, path2) $ uncurry (/=)
 
 -- | Creating a fragment with an unknown project errors before writing any file.
 prop_invalid_project :: Property

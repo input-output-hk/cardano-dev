@@ -20,6 +20,7 @@ import Test.Herald.E2E.Fixtures
   , testConfigDiffRepo
   , testConfigMultiDiffRepo
   , testConfigRootDiffRepo
+  , testConfigVersionFile
   , withFeatureBranch
   , withGitRepo
   )
@@ -43,6 +44,7 @@ tests =
         , testProperty "blank description is rejected" prop_validate_fragment_blank_desc
         , testProperty "non-positive PR is rejected" prop_validate_fragment_bad_pr
         , testProperty "unknown project is rejected" prop_validate_fragment_unknown_project
+        , testProperty "version-file project validates normally" prop_validate_fragment_version_file
         ]
     , testGroup
         "validateFiles"
@@ -172,6 +174,18 @@ prop_validate_fragment_unknown_project = H.propertyOnce $ do
           }
   shouldFail $ validateFragment testConfigMultiProject frag
 
+-- | A fragment for a version-file project validates the same as a cabal-file project.
+prop_validate_fragment_version_file :: Property
+prop_validate_fragment_version_file = H.propertyOnce $ do
+  let frag =
+        Fragment
+          { fragmentProject = "my-action"
+          , fragmentKinds = ["feature"]
+          , fragmentDescription = "Add caching"
+          , fragmentPR = 10
+          }
+  shouldPass $ validateFragment testConfigVersionFile frag
+
 -------------------------------------------------------------------------------
 -- validateFiles
 -------------------------------------------------------------------------------
@@ -201,7 +215,7 @@ prop_validate_files_mixed = H.propertyOnce $ do
     writeFile badPath "not: valid: yaml: [unterminated"
     validateFiles testConfigMultiProject [goodPath, badPath]
   shouldFail errors
-  H.assert $ all (T.isInfixOf "bad.yml") errors
+  H.assertWith errors $ all (T.isInfixOf "bad.yml")
 
 -------------------------------------------------------------------------------
 -- validateDiff
@@ -216,7 +230,7 @@ prop_validate_diff_missing = H.propertyOnce $ do
     validateDiff testConfigDiffRepo tmpDir
 
   shouldFail errors
-  H.assert $ any (T.isInfixOf "my-lib") errors
+  H.assertWith errors $ any (T.isInfixOf "my-lib")
 
 -- | Modifying a project file AND adding a matching fragment passes.
 prop_validate_diff_present :: Property
@@ -262,8 +276,8 @@ prop_validate_diff_multi_project = H.propertyOnce $ do
     validateDiff testConfigMultiDiffRepo tmpDir
 
   shouldFail errors
-  H.assert $ any (T.isInfixOf "lib-a") errors
-  H.assert . not $ any (T.isInfixOf "lib-b") errors
+  H.assertWith errors $ any (T.isInfixOf "lib-a")
+  H.assertWith errors $ not . any (T.isInfixOf "lib-b")
 
 -- | A root-level project (changelog at ".") detects changes correctly.
 prop_validate_diff_root_project :: Property
@@ -274,7 +288,7 @@ prop_validate_diff_root_project = H.propertyOnce $ do
     validateDiff testConfigRootDiffRepo tmpDir
 
   shouldFail errors
-  H.assert $ any (T.isInfixOf "my-tool") errors
+  H.assertWith errors $ any (T.isInfixOf "my-tool")
 
 -------------------------------------------------------------------------------
 -- validatePR
@@ -296,7 +310,7 @@ prop_validate_pr_mismatch = H.propertyOnce $ do
     validatePR testConfigDiffRepo tmpDir 999
 
   shouldFail errors
-  H.assert $ any (T.isInfixOf "does not match") errors
+  H.assertWith errors $ any (T.isInfixOf "does not match")
 
 -- | A fragment whose PR matches the expected number passes.
 prop_validate_pr_match :: Property
@@ -339,8 +353,8 @@ prop_validate_pr_partial_mismatch = H.propertyOnce $ do
     validatePR testConfigDiffRepo tmpDir 42
 
   length errors === 1
-  H.assert $ any (T.isInfixOf "99") errors
-  H.assert . not $ any (T.isInfixOf "42-fix") errors
+  H.assertWith errors $ any (T.isInfixOf "99")
+  H.assertWith errors $ not . any (T.isInfixOf "42-fix")
 
 -- | Template files (_TEMPLATE.yml) are skipped by PR validation.
 prop_validate_pr_skips_template :: Property
@@ -378,7 +392,7 @@ prop_validate_pr_yaml_extension = H.propertyOnce $ do
     validatePR testConfigDiffRepo tmpDir 99
 
   shouldFail errors
-  H.assert $ any (T.isInfixOf "55") errors
+  H.assertWith errors $ any (T.isInfixOf "55")
 
 -- | A fragment committed on main before the fork point must not satisfy the
 -- requirement for new changes on the feature branch.
@@ -405,7 +419,7 @@ prop_validate_diff_preexisting_fragment = H.propertyOnce $ do
       validateDiff testConfigDiffRepo tmpDir
 
   shouldFail errors
-  H.assert $ any (T.isInfixOf "my-lib") errors
+  H.assertWith errors $ any (T.isInfixOf "my-lib")
 
 -- | A new fragment that names a different project does not satisfy the modified project.
 prop_validate_diff_wrong_project :: Property
@@ -424,8 +438,8 @@ prop_validate_diff_wrong_project = H.propertyOnce $ do
     validateDiff testConfigMultiDiffRepo tmpDir
 
   shouldFail errors
-  H.assert $ any (T.isInfixOf "lib-a") errors
-  H.assert . not $ any (T.isInfixOf "lib-b") errors
+  H.assertWith errors $ any (T.isInfixOf "lib-a")
+  H.assertWith errors $ not . any (T.isInfixOf "lib-b")
 
 -- | A malformed YAML file in .changes/ does not count as a valid fragment.
 prop_validate_diff_malformed_fragment :: Property
@@ -437,7 +451,7 @@ prop_validate_diff_malformed_fragment = H.propertyOnce $ do
     validateDiff testConfigDiffRepo tmpDir
 
   shouldFail errors
-  H.assert $ any (T.isInfixOf "my-lib") errors
+  H.assertWith errors $ any (T.isInfixOf "my-lib")
 
 -- | Both projects modified but only one has a fragment: only the uncovered one is flagged.
 prop_validate_diff_multi_partial :: Property
@@ -457,8 +471,8 @@ prop_validate_diff_multi_partial = H.propertyOnce $ do
     validateDiff testConfigMultiDiffRepo tmpDir
 
   shouldFail errors
-  H.assert . not $ any (T.isInfixOf "lib-a") errors
-  H.assert $ any (T.isInfixOf "lib-b") errors
+  H.assertWith errors $ not . any (T.isInfixOf "lib-a")
+  H.assertWith errors $ any (T.isInfixOf "lib-b")
 
 -- | A fragment with correct project but invalid kinds still satisfies validateDiff.
 -- validateDiff only checks project-name presence, not fragment validity.
@@ -497,7 +511,7 @@ prop_validate_diff_deleted = H.propertyOnce $ do
     validateDiff testConfigDiffRepo tmpDir
 
   shouldFail errors
-  H.assert $ any (T.isInfixOf "my-lib") errors
+  H.assertWith errors $ any (T.isInfixOf "my-lib")
 
 -- | When no new fragments appear in the diff, --pr validation passes (nothing to check).
 prop_validate_pr_no_new_fragments :: Property

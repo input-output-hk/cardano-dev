@@ -32,7 +32,7 @@ prop_prepend_before_header = H.propertyOnce $ do
     T.pack <$> readFile path
   let idxNew = T.length . fst $ T.breakOn "## 2.0.0.0" content
       idxOld = T.length . fst $ T.breakOn "## 1.0.0.0" content
-  H.assert $ idxNew < idxOld
+  H.assertWith (idxNew, idxOld) $ uncurry (<)
   content `shouldContain` "Old entry"
   content `shouldContain` "New entry"
 
@@ -61,5 +61,5 @@ prop_preamble_preserved = H.propertyOnce $ do
   let idxPreamble = T.length . fst $ T.breakOn "# Changelog" content
       idxNew = T.length . fst $ T.breakOn "## 2.0.0.0" content
       idxOld = T.length . fst $ T.breakOn "## 1.0.0.0" content
-  H.assert $ idxPreamble < idxNew
-  H.assert $ idxNew < idxOld
+  H.assertWith (idxPreamble, idxNew) $ uncurry (<)
+  H.assertWith (idxNew, idxOld) $ uncurry (<)
