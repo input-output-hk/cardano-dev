@@ -5,9 +5,8 @@ description: >
   and that the PR number in each fragment matches the pull request (--pr).
 
 inputs:
-  version:
-    description: >
-      Herald flake ref. Use a git ref (tag, branch, or SHA) from the cardano-dev repository.
+  herald-ref:
+    description: Flake reference for the cardano-dev repository containing herald.
     required: false
     default: github:input-output-hk/cardano-dev
   config:
@@ -71,6 +70,6 @@ runs:
         fi
 
         echo "::group::Fetching herald"
-        HERALD="$(nix build --accept-flake-config "${{ inputs.version }}#herald" --no-link --print-out-paths)/bin/herald"
+        HERALD="$(nix build --accept-flake-config "${{ inputs.herald-ref }}#herald" --no-link --print-out-paths)/bin/herald"
         echo "::endgroup::"
         "$HERALD" $ARGS validate $VALIDATE_ARGS

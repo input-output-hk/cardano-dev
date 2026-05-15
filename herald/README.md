@@ -2,17 +2,19 @@
 
 [![Hydra](https://img.shields.io/badge/ci-hydra-blue)](https://ci.iog.io/jobset/input-output-hk-cardano-dev)
 
-Changelog and release automation for PVP-versioned Haskell projects.
+Changelog and release automation for PVP-versioned projects.
 
 Herald replaces manual PR-description-based changelog workflows with file-based
 changelog fragments. Each PR commits a small YAML file describing the change;
 at release time, Herald collects fragments, computes the next PVP version, updates
-the changelog and `.cabal` file, and can create a release commit with tag.
+the changelog and version source (`.cabal` file or plain text version file), and
+can create a release commit with tag.
 
 ## Features
 
 - **PVP versioning** -- 4-part versions (A.B.C.D) with auto-bumping based on change kinds
-- **Mono-repo support** -- multiple packages, each with its own changelog and `.cabal` file
+- **Mono-repo support** -- multiple packages, each with its own changelog and version source
+- **Version-file support** -- projects without a `.cabal` file can use a plain text version file
 - **Multi-select kinds** -- each fragment can have multiple change kinds (e.g. bugfix + refactoring)
 - **Non-notable filtering** -- internal changes (test, refactoring, maintenance) bump the version but are hidden from the changelog
 - **CI validation** -- validate fragments, check PR numbers, detect missing fragments for modified projects
@@ -38,8 +40,8 @@ nix develop github:input-output-hk/cardano-dev#herald
 herald init
 ```
 
-This scans the repo for projects (directories with `.cabal` files), generates
-`.herald.yml` with discovered projects and default change kinds, and creates
+This scans the repo for projects (directories with `.cabal` files or version files),
+generates `.herald.yml` with discovered projects and default change kinds, and creates
 a `.changes/_TEMPLATE.yml` template fragment.
 
 ### 2. Create a changelog fragment
@@ -84,8 +86,8 @@ herald next cardano-api
 # prints e.g. 8.5.0.0
 ```
 
-The version is computed from the current `.cabal` version plus the highest
-bump level across unreleased fragments for that package.
+The version is computed from the current version source (`.cabal` or version file)
+plus the highest bump level across unreleased fragments for that package.
 
 ### 5. Batch a release
 
@@ -107,7 +109,7 @@ Batching:
 1. Collects unreleased fragments for the package
 2. Renders a changelog section with the new version and date
 3. Prepends the section to the package's `CHANGELOG.md`
-4. Updates the `version:` field in the package's `.cabal` file
+4. Updates the version source (`.cabal` version field or version file)
 5. Removes consumed fragment files
 
 ## Configuration
@@ -168,6 +170,10 @@ projects:
   cardano-api-gen:
     changelog: cardano-api-gen/CHANGELOG.md
     cabal-file: cardano-api-gen/cardano-api-gen.cabal
+  # Non-Haskell project using a plain text version file
+  herald:
+    changelog: herald/CHANGELOG.md
+    version-file: herald/version.txt
 ```
 
 ### Kind properties
@@ -203,17 +209,23 @@ Both use nix to run Herald, so no Haskell toolchain setup is needed.
 
 ### Validate changelogs on PRs
 
-Copy `.github/workflows/validate-changelogs.yml` to your repository, or
+See [`../../actions/herald-validate/example.yml`](../../actions/herald-validate/example.yml) for a ready-to-copy workflow, or
 reference the composite action directly:
 
 ```yaml
-name: Validate Changelogs
+name: Check changelog fragments
+
+permissions:
+  contents: read
 
 on:
+  merge_group:
   pull_request:
+    types: [opened, synchronize, ready_for_review]
 
 jobs:
   validate:
+    if: ${{ github.event_name != 'merge_group' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -223,11 +235,11 @@ jobs:
       - uses: cachix/install-nix-action@v30
         with:
           extra_nix_config: |
-            trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= hydra.iohk.io:f/Ea+s+dFdN+3Y/G+FDgSq+a5NEWhJGzdjvKNGv0/EQ=
-            substituters = https://cache.iog.io/ https://cache.nixos.org/
+            accept-flake-config = true
 
-      - uses: input-output-hk/cardano-dev/herald/.github/actions/validate@main
+      - uses: input-output-hk/cardano-dev/actions/herald-validate@main
         # with:
+        #   herald-ref: github:input-output-hk/cardano-dev  # default
         #   config: .herald.yml     # default
         #   diff: 'true'            # default -- check modified projects have fragments
         #   pr: 'true'              # default -- check PR numbers match
@@ -240,8 +252,9 @@ The validate action:
 
 ### Release workflow
 
-Copy `.github/workflows/release.yml` to your repository, or reference the
-composite action directly. Trigger via the GitHub UI or CLI:
+See [`../../actions/herald-release/example.yml`](../../actions/herald-release/example.yml) for a ready-to-copy workflow, or
+reference the composite action directly.
+Trigger via the GitHub UI or CLI:
 
 ```bash
 gh workflow run release.yml -f package=cardano-api
@@ -262,29 +275,33 @@ on:
         description: Explicit version (A.B.C.D). Leave empty to auto-compute.
         required: false
         type: string
-
-permissions:
-  contents: write
-  pull-requests: write
+      branch:
+        description: Branch to release from and target for the PR. Leave empty to use the branch selected above.
+        required: false
+        type: string
 
 jobs:
   release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.branch || github.ref_name }}
           fetch-depth: 0
 
       - uses: cachix/install-nix-action@v30
         with:
           extra_nix_config: |
-            trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= hydra.iohk.io:f/Ea+s+dFdN+3Y/G+FDgSq+a5NEWhJGzdjvKNGv0/EQ=
-            substituters = https://cache.iog.io/ https://cache.nixos.org/
+            accept-flake-config = true
 
-      - uses: input-output-hk/cardano-dev/herald/.github/actions/release@main
+      - uses: input-output-hk/cardano-dev/actions/herald-release@main
         with:
           package: ${{ inputs.package }}
           version: ${{ inputs.version }}
+          base-branch: ${{ inputs.branch || github.ref_name }}
           # herald-ref: github:input-output-hk/cardano-dev  # default
           # config: .herald.yml                               # default
 ```
@@ -321,8 +338,9 @@ Commands:
   init       Scan the repository and generate .herald.yml
   new        Create a changelog fragment (interactive or scripted)
   validate   Validate fragments, check PR numbers, check diffs
-  batch      Collect fragments, update changelog and .cabal, remove fragments
+  batch      Collect fragments, update changelog and version source, remove fragments
   next       Print the next version for a package
+  extract    Print a changelog section for a given version
 ```
 
 ### Global options
@@ -370,3 +388,15 @@ launches an interactive prompt with multi-select menus.
 
 Prints the auto-computed next version to stdout. Useful for scripting.
 Exit code 1 if no version can be computed (e.g. no fragments).
+
+### `herald extract PACKAGE VERSION`
+
+Prints the changelog section body for a given version to stdout. Useful for
+release workflows that need to populate a GitHub release body.
+
+| Flag | Description |
+|------|-------------|
+| `--changelog PATH` | Override changelog path (bypasses config lookup; PACKAGE not required) |
+
+If `--changelog` is a directory, appends `CHANGELOG.md`. Use `-` to read from stdin.
+VERSION is parsed as PVP; leading zeros are normalised.
