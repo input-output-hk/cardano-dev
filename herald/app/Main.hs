@@ -132,7 +132,7 @@ commitModeParser =
   flag' CommitTag (long "commit-tag" <> help "Commit batch changes and create a PACKAGE-VERSION tag")
     <|> flag'
       Commit
-      (long "commit" <> help "Commit batch changes (changelog, .cabal version, removed fragments)")
+      (long "commit" <> help "Commit batch changes (changelog, version, removed fragments)")
     <|> pure NoCommit
 
 pvpReader :: ReadM Pvp
@@ -178,7 +178,7 @@ commandParser =
           ( info
               (CmdBatch <$> batchParser <**> helper)
               ( progDesc
-                  "Collect changelog fragments for PACKAGE, update the changelog file with a new section, bump the .cabal version, and remove processed fragments"
+                  "Collect changelog fragments for PACKAGE, update the changelog file with a new section, bump the version, and remove processed fragments"
               )
           )
         <> command
@@ -186,7 +186,7 @@ commandParser =
           ( info
               (CmdNext <$> nextParser <**> helper)
               ( progDesc
-                  "Print the next version for PACKAGE by applying the highest bump from unreleased changelog fragments to the current .cabal version"
+                  "Print the next version for PACKAGE by applying the highest bump from unreleased changelog fragments to the current version"
               )
           )
     )
@@ -196,7 +196,7 @@ opts =
   info
     ((,) <$> globalOptsParser <*> commandParser <**> helper)
     ( fullDesc
-        <> progDesc "Manage changelog fragments, version bumps, and releases for Haskell projects"
+        <> progDesc "Manage changelog fragments, version bumps, and releases for PVP-versioned projects"
         <> header "herald - changelog and versioning automation"
     )
 
@@ -252,7 +252,7 @@ runCommand config cmd = case cmd of
       Just result -> do
         putStrLn $ "Batched " <> batchPackage_ batchOpts <> " " <> showPvp (batchResultVersion result)
         putStrLn $ "  Changelog: " <> batchResultChangelog result
-        maybe (pure ()) (\cf -> putStrLn $ "  Cabal file: " <> cf) $ batchResultCabalFile result
+        maybe (pure ()) (\path -> putStrLn $ "  Version file: " <> path) $ batchResultVersionPath result
         putStrLn "  Consumed changelog fragments:"
         mapM_ (\f -> putStrLn $ "    " <> f) $ batchResultFragments result
         commitBatchResult "." result $ batchCommitMode batchOpts

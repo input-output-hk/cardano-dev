@@ -23,7 +23,7 @@ import Data.Text (Text)
 import Data.Time (Day, fromGregorian)
 
 import Herald.Pvp (Pvp (..))
-import Herald.Types (Config (..), KindDef (..), ProjectConfig (..))
+import Herald.Types (Config (..), KindDef (..), ProjectConfig (..), VersionSource (..))
 
 -- | Construct a four-component PVP version.
 pvp :: Int -> Int -> Int -> Int -> Pvp
@@ -71,7 +71,11 @@ testConfig =
     , configKinds = testKinds
     , configProjects =
         Map.fromList
-          [("cardano-api", ProjectConfig "cardano-api/CHANGELOG.md" (Just "cardano-api/cardano-api.cabal"))]
+          [
+            ( "cardano-api"
+            , ProjectConfig "cardano-api/CHANGELOG.md" (Just $ CabalFile "cardano-api/cardano-api.cabal")
+            )
+          ]
     }
 
 -- | Config with two projects (for e2e / batch tests).
@@ -80,10 +84,15 @@ testConfigMultiProject =
   testConfig
     { configProjects =
         Map.fromList
-          [ ("cardano-api", ProjectConfig "cardano-api/CHANGELOG.md" (Just "cardano-api/cardano-api.cabal"))
+          [
+            ( "cardano-api"
+            , ProjectConfig "cardano-api/CHANGELOG.md" (Just $ CabalFile "cardano-api/cardano-api.cabal")
+            )
           ,
             ( "cardano-api-gen"
-            , ProjectConfig "cardano-api-gen/CHANGELOG.md" (Just "cardano-api-gen/cardano-api-gen.cabal")
+            , ProjectConfig
+                "cardano-api-gen/CHANGELOG.md"
+                (Just $ CabalFile "cardano-api-gen/cardano-api-gen.cabal")
             )
           ]
     }

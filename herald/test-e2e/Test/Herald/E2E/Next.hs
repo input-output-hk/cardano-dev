@@ -10,6 +10,7 @@ import System.IO.Temp (withSystemTempDirectory)
 import Hedgehog (Property, (===))
 import Hedgehog qualified as H
 import Hedgehog.Extras qualified as H
+import Test.Herald.E2E.Fixtures (setupVersionFileRepo, testConfigVersionFile)
 import Test.Herald.Fixtures (pvp, testConfigMultiProject)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.Hedgehog (testProperty)
@@ -27,6 +28,8 @@ tests =
     , testProperty "next rejects invalid fragments" prop_next_invalid_fragment
     , testProperty "next with unknown project is rejected" prop_next_unknown_project
     , testProperty "next with multiple kinds picks max bump" prop_next_multiple_kinds
+    , testProperty "next with version-file computes version" prop_next_version_file
+    , testProperty "next with missing version-file treats as 0.0.0.0" prop_next_version_file_missing
     ]
 
 -- | nextVersion with no unreleased fragments returns Nothing.
@@ -56,7 +59,7 @@ prop_next_no_cabal = H.propertyOnce $ do
                   ( "cardano-api"
                   , ProjectConfig
                       { projectChangelog = "cardano-api/CHANGELOG.md"
-                      , projectCabalFile = Nothing
+                      , projectVersionSource = Nothing
                       }
                   )
                 ]
@@ -122,7 +125,7 @@ prop_next_invalid_fragment = H.propertyOnce $ do
     (nextVersion testConfigMultiProject tmpDir "cardano-api" >> pure False)
       `catch` \(HeraldException _) -> pure True
 
-  H.assert caught
+  H.assertWith caught id
 
 -- | nextVersion with an unknown project throws a HeraldException.
 prop_next_unknown_project :: Property
@@ -132,7 +135,7 @@ prop_next_unknown_project = H.propertyOnce $ do
     (nextVersion testConfigMultiProject tmpDir "nonexistent-project" >> pure False)
       `catch` \(HeraldException _) -> pure True
 
-  H.assert caught
+  H.assertWith caught id
 
 -- | nextVersion with fragments of different kinds picks the maximum bump.
 -- bugfix (patch) + feature (minor) -> feature bump wins.
@@ -166,3 +169,32 @@ prop_next_multiple_kinds = H.propertyOnce $ do
 
   -- Feature bump (0.0.1.0) > bugfix (0.0.0.1), so 8.4.1.2 -> 8.4.2.0
   result === Just (pvp 8 4 2 0)
+
+-- | nextVersion with a version-file reads the version and computes the bump.
+prop_next_version_file :: Property
+prop_next_version_file = H.propertyOnce $ do
+  result <- H.evalIO $ setupVersionFileRepo $ \tmpDir ->
+    nextVersion testConfigVersionFile tmpDir "my-action"
+  -- feature bump on 1.0.0.0 -> 1.0.1.0
+  result === Just (pvp 1 0 1 0)
+
+-- | nextVersion when the version file does not exist treats it as 0.0.0.0.
+prop_next_version_file_missing :: Property
+prop_next_version_file_missing = H.propertyOnce $ do
+  result <- H.evalIO $ withSystemTempDirectory "herald-next-vf" $ \tmpDir -> do
+    let changesDir = tmpDir </> ".changes"
+        actionDir = tmpDir </> "my-action"
+    createDirectoryIfMissing True changesDir
+    createDirectoryIfMissing True actionDir
+    -- No version.txt created
+    Yaml.encodeFile
+      (changesDir </> "10-add-cache.yml")
+      Fragment
+        { fragmentProject = "my-action"
+        , fragmentKinds = ["feature"]
+        , fragmentDescription = "Add caching"
+        , fragmentPR = 10
+        }
+    nextVersion testConfigVersionFile tmpDir "my-action"
+  -- feature bump on 0.0.0.0 -> 0.0.1.0
+  result === Just (pvp 0 0 1 0)

@@ -2,6 +2,7 @@ module Herald.Types
   ( KindDef (..)
   , Fragment (..)
   , ProjectConfig (..)
+  , VersionSource (..)
   , Config (..)
   , HeraldException (..)
   , throwHerald
@@ -80,26 +81,37 @@ instance ToJSON Fragment where
       , "pr" .= fragmentPR f
       ]
 
+data VersionSource
+  = CabalFile !FilePath
+  | VersionFile !FilePath
+  deriving (Eq, Show)
+
 data ProjectConfig = ProjectConfig
   { projectChangelog :: !FilePath
-  , projectCabalFile :: !(Maybe FilePath)
+  , projectVersionSource :: !(Maybe VersionSource)
   }
   deriving (Eq, Show)
 
 instance FromJSON ProjectConfig where
-  parseJSON = withObject "ProjectConfig" $ \o ->
-    ProjectConfig
-      <$> o
-      .: "changelog"
-      <*> o
-      .:? "cabal-file"
+  parseJSON = withObject "ProjectConfig" $ \o -> do
+    changelog <- o .: "changelog"
+    mCabal <- o .:? "cabal-file"
+    mVersionFile <- o .:? "version-file"
+    versionSource <- case (mCabal, mVersionFile) of
+      (Just _, Just _) -> fail "cabal-file and version-file are mutually exclusive; specify only one"
+      (Just cabalFile, Nothing) -> pure . Just $ CabalFile cabalFile
+      (Nothing, Just versionFile) -> pure . Just $ VersionFile versionFile
+      (Nothing, Nothing) -> pure Nothing
+    pure $ ProjectConfig changelog versionSource
 
 instance ToJSON ProjectConfig where
-  toJSON pc =
+  toJSON projectConfig =
     object
-      $ [ "changelog" .= projectChangelog pc
-        ]
-      <> maybe [] (\cf -> ["cabal-file" .= cf]) (projectCabalFile pc)
+      $ ["changelog" .= projectChangelog projectConfig]
+      <> case projectVersionSource projectConfig of
+        Just (CabalFile cabalFile) -> ["cabal-file" .= cabalFile]
+        Just (VersionFile versionFile) -> ["version-file" .= versionFile]
+        Nothing -> []
 
 data Config = Config
   { configGitRepo :: !Text

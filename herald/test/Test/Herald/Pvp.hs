@@ -163,11 +163,11 @@ prop_bump_first = H.propertyOnce $ do
 -- but our Ord is lexicographic-then-length.
 prop_ord_different_length :: Property
 prop_ord_different_length = H.propertyOnce $ do
-  H.assert $ Pvp (1 :| [0]) < Pvp (1 :| [0, 0, 0])
-  H.assert $ Pvp (1 :| [0, 0, 0]) > Pvp (1 :| [0])
+  H.assertWith (Pvp (1 :| [0]), Pvp (1 :| [0, 0, 0])) $ uncurry (<)
+  H.assertWith (Pvp (1 :| [0, 0, 0]), Pvp (1 :| [0])) $ uncurry (>)
   -- Same-length comparison still works normally
-  H.assert $ pvp 1 0 0 0 == pvp 1 0 0 0
-  H.assert $ pvp 1 0 0 1 > pvp 1 0 0 0
+  pvp 1 0 0 0 === pvp 1 0 0 0
+  H.assertWith (pvp 1 0 0 1, pvp 1 0 0 0) $ uncurry (>)
 
 -- | Leading zeros in version components are silently stripped by parsePvp.
 -- parsePvp "01.02.03" succeeds but showPvp gives "1.2.3".
@@ -182,7 +182,7 @@ prop_bump_monotonic :: Property
 prop_bump_monotonic = H.property $ do
   v <- forAll genPvp
   bump <- forAll genBump
-  H.assert $ bumpPvp bump v >= v
+  H.assertWith (bumpPvp bump v, v) $ uncurry (>=)
 
 genBump :: Gen Pvp
 genBump =
