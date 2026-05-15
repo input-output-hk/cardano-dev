@@ -9,6 +9,10 @@ changelog fragments. Each PR commits a small YAML file describing the change;
 at release time, Herald collects fragments, computes the next PVP version, updates
 the changelog and `.cabal` file, and can create a release commit with tag.
 
+## Specification
+
+Behavioural spec, requirements, and decision records live in [`spec/`](spec/requirements.md).
+
 ## Features
 
 - **PVP versioning** -- 4-part versions (A.B.C.D) with auto-bumping based on change kinds
