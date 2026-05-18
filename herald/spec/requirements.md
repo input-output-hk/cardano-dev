@@ -131,6 +131,28 @@ Herald reads, bumps, and writes the version file identically to a `.cabal` versi
 Stories: [version-sources](stories/version-sources.md), [config](stories/config.md).
 Decisions: [ADR 002](decisions/002-version-file.md).
 
+## R12: Changelog section extraction
+
+`herald extract PACKAGE VERSION` reads the project's changelog and prints the section body for a given version.
+Supports both `## VERSION -- DATE` (Herald format) and bare `## VERSION` (legacy) headers.
+Returns non-zero when the version is not found.
+
+Stories: [extract](stories/extract.md), [changelog](stories/changelog.md).
+
+## R13: Reusable release actions
+
+Composable GitHub Actions in `cardano-dev` for packaging artifacts and creating GitHub releases.
+Three new actions (`pull-nix-artifacts`, `source-tarball`, `create-release`) plus the existing `wait-for-hydra`.
+Each consumer composes the actions it needs:
+
+| Consumer    | wait-for-hydra | pull-nix-artifacts | source-tarball | create-release |
+|-------------|----------------|--------------------|----------------|----------------|
+| cardano-cli | yes            | yes                | no             | yes            |
+| Herald      | yes            | yes                | no             | yes            |
+| cardano-api | no             | no                 | yes            | yes            |
+
+Stories: [release-actions](stories/release-actions.md).
+
 ---
 
 ## Open questions
