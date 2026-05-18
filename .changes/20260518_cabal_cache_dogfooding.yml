@@ -1,0 +1,6 @@
+project: cabal-cache
+pr: 28
+kind:
+  - feature
+description: |
+  Add cabal-cache action for caching and restoring Cabal dependencies across CI jobs.

@@ -1,5 +1,3 @@
-# Example workflow -- copy this into the consuming repository's .github/workflows/
-#
 # Validates changelog fragments on every pull request:
 #   - All fragment files parse correctly and reference valid projects/kinds
 #   - Modified projects have at least one changelog fragment (--diff)
@@ -34,9 +32,7 @@ jobs:
           extra_nix_config: |
             accept-flake-config = true
 
-      - uses: input-output-hk/cardano-dev/actions/herald-validate@main
-        # with:
-        #   herald-ref: github:input-output-hk/cardano-dev  # default
-        #   config: .herald.yml                   # default
-        #   diff: 'true'                          # default
-        #   pr: 'true'                            # default
+      # Uses the local action from this repository.
+      # On main this validates with the committed action code;
+      # on PRs it validates with the PR's version of the action.
+      - uses: ./actions/herald-validate
