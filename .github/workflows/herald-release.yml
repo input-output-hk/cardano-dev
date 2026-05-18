@@ -1,0 +1,58 @@
+# Triggered manually via the GitHub Actions UI or CLI:
+#   gh workflow run herald-release.yml -f package=herald
+#   gh workflow run herald-release.yml -f package=herald-validate -f version=0.2.0.0
+#
+# What it does:
+#   1. Batches changelog fragments into a new changelog section
+#   2. Bumps the version (cabal file or version.txt, auto-computed or explicit)
+#   3. Creates a release commit and PACKAGE-VERSION tag
+#   4. Adds a release changelog fragment for the next cycle
+#   5. Pushes to a release/PACKAGE-VERSION branch
+#   6. Opens a PR with instructions for signing the commits
+
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: Package name to release (must match a project in .herald.yml)
+        required: true
+        type: choice
+        options:
+          - herald
+          - herald-validate
+          - herald-release
+          - cabal-cache
+          - grpc-deps
+      version:
+        description: Explicit version (A.B.C.D). Leave empty to auto-compute.
+        required: false
+        type: string
+      branch:
+        description: Branch to release from and target for the PR. Leave empty to use the branch selected above.
+        required: false
+        type: string
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch || github.ref_name }}
+          fetch-depth: 0
+
+      - uses: cachix/install-nix-action@v30
+        with:
+          extra_nix_config: |
+            accept-flake-config = true
+
+      - uses: ./actions/herald-release
+        with:
+          package: ${{ inputs.package }}
+          version: ${{ inputs.version }}
+          base-branch: ${{ inputs.branch || github.ref_name }}

@@ -1,0 +1,6 @@
+project: herald-validate
+pr: 28
+kind:
+  - feature
+description: |
+  Initial release

@@ -1,0 +1,42 @@
+# Validates changelog fragments on every pull request:
+#   - All fragment files parse correctly and reference valid projects/kinds
+#   - Modified projects have at least one changelog fragment (--diff)
+#   - PR numbers inside fragments match the pull request number (--pr)
+
+name: Check changelog fragments
+
+permissions:
+  contents: read
+
+on:
+  merge_group:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+
+jobs:
+  validate:
+    # Skip for merge_group: batched diffs would cause false positives and
+    # PR number context is unavailable.  The trigger is kept so the check
+    # reports "skipped" (passes) when this is a required status check.
+    if: ${{ github.event_name != 'merge_group' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Fetch full history so herald can determine the fork point
+          # for --diff and --pr checks
+          fetch-depth: 0
+
+      - uses: cachix/install-nix-action@v30
+        with:
+          extra_nix_config: |
+            accept-flake-config = true
+
+      # Uses the local action from this repository.
+      # On main this validates with the committed action code;
+      # on PRs it validates with the PR's version of the action.
+      - uses: ./actions/herald-validate
+        with:
+          # Build herald from this repo's flake (resolves to main on GitHub).
+          # To test a herald change in the same PR, override with a branch ref.
+          version: github:input-output-hk/cardano-dev
