@@ -57,9 +57,8 @@ VERSION is parsed as PVP; non-PVP input (e.g. `v1.0.0`, `latest`) is rejected.
 
 ## Integration with create-release
 
-The [create-release](release-actions.md#create-release) action has its own fallback for missing changelogs (creates the release without a body).
-It may invoke `herald extract` when a changelog path is configured, or perform its own extraction when Herald is not available.
-The two stories are independent; create-release documents its own error handling.
+The [create-release](release-actions.md#create-release) action calls `herald extract --changelog <path> <version>` for changelog extraction.
+When `changelog-path` is empty or the file does not exist, create-release skips extraction and creates the release without a body.
 
 ## Acceptance criteria
 
