@@ -14,10 +14,6 @@ can create a release commit with tag.
 
 Behavioural spec, requirements, and decision records live in [`spec/`](spec/requirements.md).
 
-## Specification
-
-Behavioural spec, requirements, and decision records live in [`spec/`](spec/requirements.md).
-
 ## Features
 
 - **PVP versioning** -- 4-part versions (A.B.C.D) with auto-bumping based on change kinds
@@ -236,11 +232,11 @@ jobs:
     if: ${{ github.event_name != 'merge_group' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - uses: cachix/install-nix-action@v30
+      - uses: cachix/install-nix-action@v31
         with:
           extra_nix_config: |
             accept-flake-config = true
@@ -295,12 +291,12 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.branch || github.ref_name }}
           fetch-depth: 0
 
-      - uses: cachix/install-nix-action@v30
+      - uses: cachix/install-nix-action@v31
         with:
           extra_nix_config: |
             accept-flake-config = true
