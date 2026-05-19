@@ -8,7 +8,7 @@ inputs:
   herald-ref:
     description: Flake reference for the cardano-dev repository containing herald.
     required: false
-    default: github:input-output-hk/cardano-dev
+    default: github:input-output-hk/cardano-dev/herald-0.1.1.0
   config:
     description: Path to the herald config file, relative to the repository root.
     required: false

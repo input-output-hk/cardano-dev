@@ -1,0 +1,6 @@
+project: herald-release
+pr: 34
+kind:
+  - maintenance
+description: |
+  Pin default herald-ref to github:input-output-hk/cardano-dev/herald-0.1.1.0 for reproducible builds.

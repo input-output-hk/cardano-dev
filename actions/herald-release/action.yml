@@ -21,7 +21,7 @@ inputs:
   herald-ref:
     description: Flake reference for the cardano-dev repository containing herald.
     required: false
-    default: github:input-output-hk/cardano-dev
+    default: github:input-output-hk/cardano-dev/herald-0.1.1.0
   base-branch:
     description: >
       Branch to target for the release PR. If omitted, auto-detected from the
