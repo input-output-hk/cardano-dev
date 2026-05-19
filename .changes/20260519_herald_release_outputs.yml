@@ -1,6 +1,0 @@
-project: herald-release
-pr: 31
-kind:
-  - feature
-description: |
-  Add action outputs (pr-url, pr-number, version, tag) and GHA annotation for release summary.
