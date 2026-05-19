@@ -1,0 +1,6 @@
+project: herald-release
+pr: 33
+kind:
+  - feature
+description: |
+  Make the release action idempotent across re-runs: reset release branch to the default branch with explicit start-point, force-push branch and tag, reuse existing open PR instead of creating duplicates, and fail hard on existing tags.

@@ -107,11 +107,11 @@ runs:
       run: |
         TAG="${{ inputs.package }}-${{ steps.version.outputs.value }}"
         if git rev-parse "$TAG" >/dev/null 2>&1; then
-          echo "::error::Tag $TAG already exists locally"
+          echo "::error::Tag $TAG already exists locally. Delete it before re-running."
           exit 1
         fi
         if git ls-remote --tags origin "refs/tags/$TAG" | grep -q .; then
-          echo "::error::Tag $TAG already exists on remote"
+          echo "::error::Tag $TAG already exists on remote. Delete it before re-running."
           exit 1
         fi
 
@@ -119,7 +119,7 @@ runs:
       shell: bash
       run: |
         BRANCH="release/${{ inputs.package }}-${{ steps.version.outputs.value }}"
-        git checkout -b "$BRANCH"
+        git checkout -B "$BRANCH" "${{ steps.default-branch.outputs.name }}"
         echo "RELEASE_BRANCH=$BRANCH" >> "$GITHUB_ENV"
         echo "RELEASE_TAG=${{ inputs.package }}-${{ steps.version.outputs.value }}" >> "$GITHUB_ENV"
 
@@ -138,10 +138,10 @@ runs:
     - name: Push release branch and tag
       shell: bash
       run: |
-        git push -q -u origin "$RELEASE_BRANCH"
+        git push -q --force -u origin "$RELEASE_BRANCH"
         git push -q origin "$RELEASE_TAG"
 
-    - name: Create pull request
+    - name: Create or reuse pull request
       id: pr
       shell: bash
       env:
@@ -151,13 +151,25 @@ runs:
         VERSION="${{ steps.version.outputs.value }}"
         DEFAULT_BRANCH="${{ steps.default-branch.outputs.name }}"
 
-        PR_URL=$(gh pr create \
-          --title "Release $PACKAGE $VERSION" \
-          --base "$DEFAULT_BRANCH" \
+        EXISTING=$(gh pr list \
           --head "$RELEASE_BRANCH" \
-          --body "Release in progress -- PR body will be updated shortly.")
+          --state open \
+          --json number,url \
+          --jq '.[0] // empty' 2>/dev/null) || true
 
-        PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$')
+        if [ -n "$EXISTING" ]; then
+          PR_URL=$(echo "$EXISTING" | jq -r '.url')
+          PR_NUMBER=$(echo "$EXISTING" | jq -r '.number')
+          echo "::notice::Reusing existing release PR #$PR_NUMBER"
+        else
+          PR_URL=$(gh pr create \
+            --title "Release $PACKAGE $VERSION" \
+            --base "$DEFAULT_BRANCH" \
+            --head "$RELEASE_BRANCH" \
+            --body "Release in progress - PR body will be updated shortly.")
+          PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$')
+        fi
+
         echo "url=$PR_URL" >> "$GITHUB_OUTPUT"
         echo "number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
 
@@ -179,7 +191,7 @@ runs:
         git add .changes/
         git commit --no-verify --no-gpg-sign \
           -m "Add release changelog fragment for $PACKAGE $VERSION"
-        git push
+        git push --force
 
     - name: Update PR body
       shell: bash
@@ -215,7 +227,7 @@ runs:
         git checkout $BRANCH
         git rebase HEAD~${COMMIT_COUNT} --exec 'git commit --amend --no-edit -S'
         git tag -f $TAG HEAD~${TAG_OFFSET}
-        git push --force-with-lease origin $BRANCH
+        git push --force origin $BRANCH
         git push --force origin $TAG
         \`\`\`
 
