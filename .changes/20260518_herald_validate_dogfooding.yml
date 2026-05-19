@@ -1,6 +1,0 @@
-project: herald-validate
-pr: 28
-kind:
-  - feature
-description: |
-  Add herald-validate action for CI changelog fragment validation. Rename `version` input to `herald-ref` for consistency with herald-release.
