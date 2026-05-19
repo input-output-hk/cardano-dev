@@ -7,12 +7,19 @@ author: Input Output Global
 maintainer: operations@iohk.io
 build-type: Simple
 
+-- -flate-specialise: defer specialisation of overloaded functions to use sites
+-- -split-sections: enable linker to discard unused code sections
+-- -optl-s: strip symbols at link time
 common warnings
   ghc-options:
     -Wall
     -Wredundant-constraints
     -Wincomplete-record-updates
     -Wincomplete-uni-patterns
+    -O2
+    -flate-specialise
+    -split-sections
+    -optl-s
 
 common lang
   default-language: GHC2021
@@ -69,10 +76,15 @@ library
     transformers,
     yaml,
 
+-- RTS tuning: large nursery so GC never triggers in a short-lived CLI run,
+-- disable idle GC
 executable herald
   import: warnings, lang
   hs-source-dirs: app
   main-is: Main.hs
+  ghc-options:
+    "-with-rtsopts=-A64m -I0"
+
   autogen-modules:
     PackageInfo_herald
     Paths_herald

@@ -114,6 +114,19 @@
           else
             heraldExe;
 
+        # Strip nix store references from the static binary so consumers
+        # only download the single output, not the full build closure.
+        heraldStripped =
+          if pkgs.stdenv.hostPlatform.isLinux then
+            pkgs.runCommand "herald" { nativeBuildInputs = [ pkgs.removeReferencesTo ]; } ''
+              mkdir -p $out/bin
+              cp ${heraldPlatformExe}/bin/herald $out/bin/herald
+              chmod +w $out/bin/herald
+              remove-references-to -t ${heraldPlatformExe} $out/bin/herald
+            ''
+          else
+            heraldPlatformExe;
+
         ghcVersion = "ghc9122";
 
         # Pinned tool versions shared between devShell and CI lint check
@@ -200,7 +213,7 @@
         apps = pkgs.lib.foldl' (acc: s: acc // { ${s} = mkScriptApp s; }) {
           herald = {
             type = "app";
-            program = "${heraldPlatformExe}/bin/herald";
+            program = "${heraldStripped}/bin/herald";
           };
           herald-dy = {
             type = "app";
@@ -208,7 +221,7 @@
           };
         } scripts;
         packages = {
-          herald = heraldPlatformExe;
+          herald = heraldStripped;
         }
         // heraldRelease;
         devShells = {
@@ -230,7 +243,7 @@
             herald = {
               inherit (heraldProject.hsPkgs.herald.components) library;
               exe = heraldExe;
-              static = heraldPlatformExe;
+              static = heraldStripped;
               tests = heraldTestExe;
               e2e = heraldE2eExe;
             }

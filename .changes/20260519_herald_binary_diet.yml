@@ -1,0 +1,6 @@
+project: herald
+pr: 31
+kind:
+  - maintenance
+description: |
+  Optimise herald binary: add -O2, -split-sections, -flate-specialise, -optl-s, RTS tuning (-A64m -I0), strip nix store references via removeReferencesTo, and add heraldStripped to hydraJobs for cache substitution. Reduces CI nix closure from 382 MiB / 234 paths to 30 MiB / 3 paths.

@@ -29,6 +29,20 @@ inputs:
     required: false
     default: ''
 
+outputs:
+  pr-url:
+    description: URL of the release pull request.
+    value: ${{ steps.pr.outputs.url }}
+  pr-number:
+    description: Number of the release pull request.
+    value: ${{ steps.pr.outputs.number }}
+  version:
+    description: The released version (computed or explicit).
+    value: ${{ steps.version.outputs.value }}
+  tag:
+    description: The git tag created for the release.
+    value: ${{ steps.version.outputs.value && format('{0}-{1}', inputs.package, steps.version.outputs.value) }}
+
 runs:
   using: composite
   steps:
@@ -210,4 +224,4 @@ runs:
         sed -i 's/^        //' /tmp/pr-body.md
         gh pr edit "$PR_NUMBER" --body-file /tmp/pr-body.md
 
-        echo "::notice::Release PR: ${{ steps.pr.outputs.url }}"
+        echo "::notice::Release $PACKAGE $VERSION - PR: ${{ steps.pr.outputs.url }}"

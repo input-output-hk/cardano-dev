@@ -72,4 +72,23 @@ runs:
         echo "::group::Fetching herald"
         HERALD="$(nix build --accept-flake-config "${{ inputs.herald-ref }}#herald" --no-link --print-out-paths)/bin/herald"
         echo "::endgroup::"
-        "$HERALD" $ARGS validate $VALIDATE_ARGS
+        if ! OUTPUT=$("$HERALD" $ARGS validate $VALIDATE_ARGS 2>&1); then
+          current=""
+          while IFS= read -r line; do
+            if [[ "$line" =~ ^[^[:space:]] ]]; then
+              [ -n "$current" ] && echo "::error::$current"
+              current="$line"
+            else
+              current="$current $line"
+            fi
+          done <<< "$OUTPUT"
+          [ -n "$current" ] && echo "::error::$current"
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+        ### Changelog validation failed
+
+        \`\`\`
+        $OUTPUT
+        \`\`\`
+        EOF
+          exit 1
+        fi
