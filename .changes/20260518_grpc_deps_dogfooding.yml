@@ -1,6 +1,0 @@
-project: grpc-deps
-pr: 28
-kind:
-  - feature
-description: |
-  Add grpc-deps action for installing gRPC system dependencies on Linux, macOS, and Windows.
