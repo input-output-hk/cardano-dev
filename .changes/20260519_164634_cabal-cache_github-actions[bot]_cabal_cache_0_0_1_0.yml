@@ -1,0 +1,5 @@
+description: Release cabal-cache 0.0.1.0
+kind:
+- release
+pr: 37
+project: cabal-cache
