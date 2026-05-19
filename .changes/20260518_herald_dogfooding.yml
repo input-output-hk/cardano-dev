@@ -1,6 +1,0 @@
-project: herald
-pr: 28
-kind:
-  - feature
-description: |
-  Add version-file support documentation and extract command to CLI reference.
