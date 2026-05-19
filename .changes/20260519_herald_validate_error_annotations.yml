@@ -1,6 +1,0 @@
-project: herald-validate
-pr: 31
-kind:
-  - feature
-description: |
-  Surface validation errors as GitHub error annotations and step summary instead of burying them in the log.
