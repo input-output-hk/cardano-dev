@@ -1,6 +1,0 @@
-project: herald-release
-pr: 28
-kind:
-  - feature
-description: |
-  Add herald-release action for automated release PR creation with changelog batching, version bumping, and commit signing instructions.
