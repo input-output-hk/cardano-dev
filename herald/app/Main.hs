@@ -230,7 +230,7 @@ runCommand config cmd = case cmd of
       files <- case validateFiles_ valOpts of
         [] -> discoverFragmentPaths config "."
         explicit -> pure explicit
-      validateFiles config files
+      validateFiles config "." files
     diffErrors <-
       if validateDiff_ valOpts
         then validateDiff config "."

@@ -1,6 +1,6 @@
 module Test.Herald.E2E.Batch (tests) where
 
-import Control.Exception (SomeException, catch)
+import Control.Exception.Safe (SomeException, catch)
 import Data.List (sort)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust, isNothing)
@@ -17,10 +17,9 @@ import Hedgehog (Property, (===))
 import Hedgehog qualified as H
 import Hedgehog.Extras qualified as H
 import Test.Herald.Assertions (shouldContain)
-import Test.Herald.E2E.Fixtures
-  ( setupBatchRepo
-  , setupTestRepo
-  , setupVersionFileBatchRepo
+import Test.Herald.E2E.Fixtures.Standard (setupBatchRepo, setupTestRepo)
+import Test.Herald.E2E.Fixtures.VersionFile
+  ( setupVersionFileBatchRepo
   , setupVersionFileRepo
   , testConfigVersionFile
   )
@@ -155,7 +154,8 @@ prop_batch_result_fields = H.propertyOnce $ do
     pure r
 
   batchResultVersion result === pvp 8 5 0 0
-  sort (batchResultFragments result) === ["42-fix-serialization.yml", "99-add-conway-support.yml"]
+  sort (batchResultFragments result)
+    === [".changes/42-fix-serialization.yml", ".changes/99-add-conway-support.yml"]
   H.assertWith (batchResultChangelog result) $ T.isSuffixOf "CHANGELOG.md" . T.pack
   H.assertWith (batchResultVersionPath result) $ maybe False (T.isSuffixOf ".cabal" . T.pack)
 
@@ -210,6 +210,7 @@ prop_batch_no_fragments = H.propertyOnce $ do
                 ProjectConfig
                   { projectChangelog = "empty-project/CHANGELOG.md"
                   , projectVersionSource = Nothing
+                  , projectChangesDir = Nothing
                   }
                 $ configProjects testConfigMultiProject
           }
@@ -274,6 +275,7 @@ prop_batch_no_cabal = H.propertyOnce $ do
                   , ProjectConfig
                       { projectChangelog = "cardano-api/CHANGELOG.md"
                       , projectVersionSource = Nothing
+                      , projectChangesDir = Nothing
                       }
                   )
                 ]
@@ -322,6 +324,7 @@ prop_batch_auto_no_cabal = H.propertyOnce $ do
                   , ProjectConfig
                       { projectChangelog = "cardano-api/CHANGELOG.md"
                       , projectVersionSource = Nothing
+                      , projectChangesDir = Nothing
                       }
                   )
                 ]

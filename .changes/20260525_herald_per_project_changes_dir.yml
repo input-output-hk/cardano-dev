@@ -1,0 +1,6 @@
+project: herald
+pr: 39
+kind:
+  - feature
+description: |
+  Add per-project changes-dir support. Each project in .herald.yml can declare its own changes-dir, which is scanned alongside the global directory. Fragments in a per-project directory infer their project from the directory, making the project field optional for both file and diff validation. No two changes-dir values may be the same or nest inside each other, including between per-project and global directories.

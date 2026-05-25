@@ -8,6 +8,7 @@ Uses: [fragments](fragments.md), [config](config.md).
 ## File validation (`herald validate [FILES...]`)
 
 Validates that fragment files parse correctly and reference valid projects/kinds as defined in the [config](config.md).
+When validating fragments in a per-project `changes-dir`, the `project:` field is inferred from the directory if absent, and directory-project consistency is checked.
 - Malformed YAML produces a parse error.
 - When validating a mix of good and bad files, only bad files are reported.
 - Nonexistent file paths produce a clean error.
@@ -65,37 +66,39 @@ This catches accidental miscategorisation from copy-paste or file moves between 
 9. Malformed YAML produces error.
 10. Mix of good and bad: only bad reported.
 11. Nonexistent file path: clean error.
+12. Fragment in a per-project dir without `project:` field passes file validation (project inferred from directory).
+13. Fragment in a per-project dir with mismatching `project:` field is flagged by file validation.
 
 ### Diff validation
-12. Missing fragment for modified project is detected.
-13. Fragment present for modified project passes.
-14. Changes only in `.changes/` are ignored.
-15. Only the modified project is flagged (not untouched projects).
-16. Root-level project detects changes.
-17. No commits on feature branch: passes.
-18. Deleted files require a fragment.
-19. Pre-existing fragment does not satisfy new changes.
-20. Fragment for wrong project does not satisfy.
-21. Malformed fragment does not satisfy.
-22. Both projects modified, only one has fragment: only uncovered project flagged.
-23. Invalid fragment content still satisfies diff check (project-name presence only).
-24. Branch with no remote tracking: fork-point detection fails with a user-friendly error.
-25. Changes only in a per-project `changes-dir` (no project source files touched) are ignored.
-26. Files inside a per-project `changes-dir` are not treated as project source changes.
-27. New fragment in a per-project dir satisfies the requirement for that project.
+14. Missing fragment for modified project is detected.
+15. Fragment present for modified project passes.
+16. Changes only in `.changes/` are ignored.
+17. Only the modified project is flagged (not untouched projects).
+18. Root-level project detects changes.
+19. No commits on feature branch: passes.
+20. Deleted files require a fragment.
+21. Pre-existing fragment does not satisfy new changes.
+22. Fragment for wrong project does not satisfy.
+23. Malformed fragment does not satisfy.
+24. Both projects modified, only one has fragment: only uncovered project flagged.
+25. Invalid fragment content still satisfies diff check (project-name presence only).
+26. Branch with no remote tracking: fork-point detection fails with a user-friendly error.
+27. Changes only in a per-project `changes-dir` (no project source files touched) are ignored.
+28. Files inside a per-project `changes-dir` are not treated as project source changes.
+29. New fragment in a per-project dir satisfies the requirement for that project.
 
 ### PR validation
-28. Wrong PR number is detected.
-29. Correct PR number passes.
-30. Only mismatched fragments reported.
-31. Template files are skipped.
-32. `.yaml` extension is also checked.
-33. No new fragments in diff: passes.
-34. Malformed fragment in diff: parse error.
-35. Invalid content with matching PR passes (PR-only check).
-36. New fragment in a per-project dir with correct PR number passes.
+30. Wrong PR number is detected.
+31. Correct PR number passes.
+32. Only mismatched fragments reported.
+33. Template files are skipped.
+34. `.yaml` extension is also checked.
+35. No new fragments in diff: passes.
+36. Malformed fragment in diff: parse error.
+37. Invalid content with matching PR passes (PR-only check).
+38. New fragment in a per-project dir with correct PR number passes.
 
 ### Project-directory mismatch
-37. Fragment in a per-project dir with explicit `project:` naming a different project is an error.
-38. Fragment in a per-project dir with matching explicit `project:` passes.
-39. Fragment in a per-project dir with no `project:` field passes.
+39. Fragment in a per-project dir with explicit `project:` naming a different project is an error.
+40. Fragment in a per-project dir with matching explicit `project:` passes.
+41. Fragment in a per-project dir with no `project:` field passes.

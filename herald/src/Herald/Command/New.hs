@@ -21,7 +21,7 @@ import Herald.Fragment (validateFragment)
 import Herald.Fragment.Read (readProjectFragments)
 import Herald.Git (currentBranch, userNick)
 import Herald.Terminal (promptInt, promptMultiLine, promptMultiSelect)
-import Herald.Types (Config (..), Fragment (..), KindDef (..), throwHerald)
+import Herald.Types (Config (..), Fragment (..), KindDef (..), resolveChangesDir, throwHerald)
 
 data NewOptions = NewOptions
   { newProject :: !Text
@@ -51,14 +51,17 @@ createFragment config baseDir opts = do
         $ "A fragment for PR "
         <> show (newPR opts)
         <> " already exists: "
-        <> configChangesDir config
-        <> "/"
         <> path
         <> " -- update that file instead"
     [] -> pure ()
 
+  changesDir <-
+    maybe
+      (throwHerald $ "No changes directory configured for project " <> T.unpack (newProject opts))
+      pure
+      $ resolveChangesDir config (newProject opts)
   filename <- generateFilename $ newProject opts
-  let outDir = baseDir </> configChangesDir config
+  let outDir = baseDir </> changesDir
       outPath = outDir </> filename
 
   createDirectoryIfMissing True outDir

@@ -67,13 +67,13 @@ testConfig :: Config
 testConfig =
   Config
     { configGitRepo = "https://github.com/IntersectMBO/cardano-api"
-    , configChangesDir = ".changes"
+    , configChangesDir = Just ".changes"
     , configKinds = testKinds
     , configProjects =
         Map.fromList
           [
             ( "cardano-api"
-            , ProjectConfig "cardano-api/CHANGELOG.md" (Just $ CabalFile "cardano-api/cardano-api.cabal")
+            , ProjectConfig "cardano-api/CHANGELOG.md" (Just $ CabalFile "cardano-api/cardano-api.cabal") Nothing
             )
           ]
     }
@@ -86,13 +86,14 @@ testConfigMultiProject =
         Map.fromList
           [
             ( "cardano-api"
-            , ProjectConfig "cardano-api/CHANGELOG.md" (Just $ CabalFile "cardano-api/cardano-api.cabal")
+            , ProjectConfig "cardano-api/CHANGELOG.md" (Just $ CabalFile "cardano-api/cardano-api.cabal") Nothing
             )
           ,
             ( "cardano-api-gen"
             , ProjectConfig
                 "cardano-api-gen/CHANGELOG.md"
                 (Just $ CabalFile "cardano-api-gen/cardano-api-gen.cabal")
+                Nothing
             )
           ]
     }

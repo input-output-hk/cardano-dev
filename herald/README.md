@@ -58,7 +58,8 @@ herald new
 herald new --project cardano-api --kind bugfix,refactoring --description "Fix certificate serialization" --pr 1234
 ```
 
-Fragments are YAML files stored in the changes directory (default: `.changes/`):
+Fragments are YAML files stored in the changes directory (default: `.changes/`).
+Projects with a per-project `changes-dir` can omit the `project:` field - it is inferred from the directory.
 
 ```yaml
 project: cardano-api
@@ -125,7 +126,7 @@ Herald is configured via `.herald.yml` (or a custom path with `-c`):
 # Accepts: full HTTPS URL, SSH URL, or owner/repo slug (assumes GitHub)
 git-repo: https://github.com/IntersectMBO/cardano-api
 
-# Directory for changelog fragments
+# Global directory for changelog fragments (optional when every project has its own)
 changes-dir: .changes
 
 # Change kinds and their properties
@@ -178,6 +179,11 @@ projects:
   herald:
     changelog: herald/CHANGELOG.md
     version-file: herald/version.txt
+  # Project with its own changes directory
+  cardano-node:
+    changelog: cardano-node/CHANGELOG.md
+    cabal-file: cardano-node/cardano-node.cabal
+    changes-dir: cardano-node/.changes
 ```
 
 ### Kind properties
@@ -188,6 +194,15 @@ projects:
 - **`notable`** (default: `true`) -- if `false`, entries with only non-notable kinds
   are hidden from the rendered changelog but still contribute to version bumping.
 - **`description`** (optional) -- shown in interactive prompts.
+
+### Per-project `changes-dir`
+
+Each project may declare its own `changes-dir`.
+When set, both the global directory (if configured) and the per-project directory are scanned for that project's fragments.
+The `project:` field is optional for fragments in a per-project directory - it is inferred from the directory name.
+
+The global `changes-dir` is optional when every project declares its own.
+No two `changes-dir` values may be the same or nest inside each other (including between per-project and global directories).
 
 ## Changelog output format
 

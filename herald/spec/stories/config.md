@@ -49,8 +49,8 @@ The `project:` field is optional for fragments in a per-project directory - see 
 
 The following are checked at config-load time:
 
-- No two projects may share the same `changes-dir` value (ambiguous project inference).
-- A per-project `changes-dir` must not be an ancestor or descendant of another per-project `changes-dir` (would cause double-counting).
+- No two `changes-dir` values may be the same (including between a per-project dir and the global dir).
+- No `changes-dir` may be an ancestor or descendant of another (including between a per-project dir and the global dir).
 - If the global `changes-dir` is absent, every project must declare its own.
 
 ## Kind properties
@@ -154,14 +154,16 @@ Herald reads `.git/config` for remote detection during [init](init.md).
 28. `changes-dir` roundtrips through YAML encode/decode.
 29. Two projects with the same `changes-dir` value produce a parse error.
 30. A per-project `changes-dir` nested inside another per-project `changes-dir` produces a parse error.
-31. Global `changes-dir` absent with all projects having their own loads successfully.
-32. Global `changes-dir` absent with an uncovered project produces a parse error naming that project.
+31. A per-project `changes-dir` equal to the global `changes-dir` produces a parse error.
+32. A per-project `changes-dir` nested under the global `changes-dir` produces a parse error.
+33. Global `changes-dir` absent with all projects having their own loads successfully.
+34. Global `changes-dir` absent with an uncovered project produces a parse error naming that project.
 
 ### Git config parsing
-33. Simple section.key lookups work.
-34. Subsection keys (`remote.origin.url`) are resolved.
-35. Missing key or section returns `Nothing`.
-36. Section names are case-insensitive.
-37. Subsection names are case-sensitive.
-38. Comment lines are ignored.
-39. Multiple subsections are resolved independently.
+35. Simple section.key lookups work.
+36. Subsection keys (`remote.origin.url`) are resolved.
+37. Missing key or section returns `Nothing`.
+38. Section names are case-insensitive.
+39. Subsection names are case-sensitive.
+40. Comment lines are ignored.
+41. Multiple subsections are resolved independently.

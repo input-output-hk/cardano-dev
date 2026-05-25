@@ -10,20 +10,17 @@ import Hedgehog (Property, (===))
 import Hedgehog qualified as H
 import Hedgehog.Extras qualified as H
 import Test.Herald.Assertions (shouldFail, shouldPass)
-import Test.Herald.E2E.Fixtures
-  ( commitAll
-  , git
-  , setupDiffRepo
+import Test.Herald.E2E.Fixtures (commitAll, git, withFeatureBranch, withGitRepo)
+import Test.Herald.E2E.Fixtures.Standard
+  ( setupDiffRepo
   , setupMultiDiffRepo
   , setupRootDiffRepo
   , setupTestRepo
   , testConfigDiffRepo
   , testConfigMultiDiffRepo
   , testConfigRootDiffRepo
-  , testConfigVersionFile
-  , withFeatureBranch
-  , withGitRepo
   )
+import Test.Herald.E2E.Fixtures.VersionFile (testConfigVersionFile)
 import Test.Herald.Fixtures (testConfigMultiProject)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.Hedgehog (testProperty)
@@ -194,7 +191,7 @@ prop_validate_fragment_version_file = H.propertyOnce $ do
 prop_validate_files_valid :: Property
 prop_validate_files_valid = H.propertyOnce $ do
   errors <- H.evalIO $ setupTestRepo $ \tmpDir ->
-    validateFiles testConfigMultiProject [tmpDir </> ".changes" </> "42-fix-serialization.yml"]
+    validateFiles testConfigMultiProject "." [tmpDir </> ".changes" </> "42-fix-serialization.yml"]
   shouldPass errors
 
 -- | Malformed YAML triggers a parse error.
@@ -203,7 +200,7 @@ prop_validate_files_malformed = H.propertyOnce $ do
   errors <- H.evalIO $ withSystemTempDirectory "herald-validate" $ \tmpDir -> do
     let path = tmpDir </> "bad.yml"
     writeFile path "not: valid: yaml: [unterminated"
-    validateFiles testConfigMultiProject [path]
+    validateFiles testConfigMultiProject "." [path]
   shouldFail errors
 
 -- | When validating a mix of good and bad files, only the bad file produces errors.
@@ -213,7 +210,7 @@ prop_validate_files_mixed = H.propertyOnce $ do
     let goodPath = tmpDir </> ".changes" </> "42-fix-serialization.yml"
         badPath = tmpDir </> ".changes" </> "bad.yml"
     writeFile badPath "not: valid: yaml: [unterminated"
-    validateFiles testConfigMultiProject [goodPath, badPath]
+    validateFiles testConfigMultiProject "." [goodPath, badPath]
   shouldFail errors
   H.assertWith errors $ all (T.isInfixOf "bad.yml")
 
@@ -557,6 +554,6 @@ prop_validate_files_nonexistent :: Property
 prop_validate_files_nonexistent = H.propertyOnce $ do
   errors <-
     H.evalIO $
-      validateFiles testConfigDiffRepo ["/tmp/does-not-exist-12345.yml"]
+      validateFiles testConfigDiffRepo "." ["/tmp/does-not-exist-12345.yml"]
 
   shouldFail errors

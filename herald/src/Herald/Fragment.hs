@@ -1,5 +1,7 @@
 module Herald.Fragment
   ( validateFragment
+  , validateFragmentDir
+  , validateDirConsistency
   )
 where
 
@@ -26,3 +28,24 @@ validateFragment config frag =
     , ["Description must not be empty" | T.null . T.strip $ fragmentDescription frag]
     , ["PR number must be positive" | fragmentPR frag <= 0]
     ]
+
+-- | Validate a fragment found in a per-project directory.
+-- Checks the base fragment validity plus directory-project consistency.
+validateFragmentDir :: Config -> Text -> Fragment -> [Text]
+validateFragmentDir config dirProject frag =
+  validateFragment config frag
+    <> validateDirConsistency config dirProject frag
+
+-- | Directory-only consistency checks for a per-project fragment.
+-- Does not include content validation ('validateFragment').
+validateDirConsistency :: Config -> Text -> Fragment -> [Text]
+validateDirConsistency config dirProject frag =
+  [ "Directory " <> dirProject <> " does not match any project in config"
+  | not (Map.member dirProject (configProjects config))
+  ]
+    <> [ "Fragment project "
+           <> fragmentProject frag
+           <> " does not match directory "
+           <> dirProject
+       | fragmentProject frag /= dirProject
+       ]

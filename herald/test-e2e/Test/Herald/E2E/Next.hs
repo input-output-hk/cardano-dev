@@ -10,7 +10,7 @@ import System.IO.Temp (withSystemTempDirectory)
 import Hedgehog (Property, (===))
 import Hedgehog qualified as H
 import Hedgehog.Extras qualified as H
-import Test.Herald.E2E.Fixtures (setupVersionFileRepo, testConfigVersionFile)
+import Test.Herald.E2E.Fixtures.VersionFile (setupVersionFileRepo, testConfigVersionFile)
 import Test.Herald.Fixtures (pvp, testConfigMultiProject)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.Hedgehog (testProperty)
@@ -60,6 +60,7 @@ prop_next_no_cabal = H.propertyOnce $ do
                   , ProjectConfig
                       { projectChangelog = "cardano-api/CHANGELOG.md"
                       , projectVersionSource = Nothing
+                      , projectChangesDir = Nothing
                       }
                   )
                 ]

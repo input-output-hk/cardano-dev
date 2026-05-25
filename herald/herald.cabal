@@ -67,10 +67,8 @@ library
     directory,
     filepath,
     haskeline,
-    optparse-applicative,
     process,
     rio,
-    safe-exceptions,
     text,
     time,
     transformers,
@@ -120,6 +118,7 @@ library herald-test-lib
     base >=4.14 && <5,
     containers,
     hedgehog,
+    hedgehog-extras,
     herald,
     text,
     time,
@@ -139,6 +138,7 @@ test-suite herald-test
     Test.Herald.Cabal
     Test.Herald.Changelog
     Test.Herald.Config
+    Test.Herald.Config.ChangesDir
     Test.Herald.Fragment
     Test.Herald.Git
     Test.Herald.Pvp
@@ -149,7 +149,6 @@ test-suite herald-test
   build-depends:
     base >=4.14 && <5,
     bytestring,
-    containers,
     directory,
     filepath,
     hedgehog,
@@ -176,11 +175,17 @@ test-suite herald-test-e2e
     PackageInfo_herald
     Paths_herald
     Test.Herald.E2E.Batch
+    Test.Herald.E2E.Batch.PerProject
     Test.Herald.E2E.Fixtures
+    Test.Herald.E2E.Fixtures.PerProject
+    Test.Herald.E2E.Fixtures.Standard
+    Test.Herald.E2E.Fixtures.VersionFile
     Test.Herald.E2E.Fragment
+    Test.Herald.E2E.Fragment.PerProject
     Test.Herald.E2E.Init
     Test.Herald.E2E.Next
     Test.Herald.E2E.Validate
+    Test.Herald.E2E.Validate.PerProject
 
   build-depends:
     base >=4.14 && <5,
@@ -192,6 +197,7 @@ test-suite herald-test-e2e
     herald,
     herald:herald-test-lib,
     process,
+    safe-exceptions,
     tasty,
     tasty-hedgehog,
     temporary,
