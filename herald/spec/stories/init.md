@@ -26,9 +26,14 @@ Creates `_TEMPLATE.yml` in the changes directory containing `project:` and `kind
 
 Re-running `init` when `.herald.yml` already exists is an error ("already exists").
 
+## Per-project `changes-dir`
+
+`herald init` does not generate per-project `changes-dir` entries.
+Users add these manually after initialisation.
+
 ## Generated config comments
 
-The projects section includes a comment block mentioning both `cabal-file` and `version-file`.
+The projects section includes a comment block mentioning `cabal-file`, `version-file`, and the optional per-project `changes-dir`.
 
 ## Acceptance criteria
 
@@ -41,3 +46,5 @@ The projects section includes a comment block mentioning both `cabal-file` and `
 7. HTTPS remote URL is correctly extracted into config.
 8. Directories with `.cabal` get `CabalFile`; without get `VersionFile`.
 9. Generated `.herald.yml` text contains `"version-file"` in comments.
+10. Generated `.herald.yml` text mentions `changes-dir` as an optional per-project field in comments.
+11. `herald init` does not generate per-project `changes-dir` entries.

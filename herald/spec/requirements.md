@@ -19,6 +19,10 @@ The repo may contain multiple packages, each with its own `CHANGELOG.md` and ver
 A fragment is associated with exactly one project.
 Release (batching + changelog assembly) is done per-package independently.
 
+Each project may optionally declare its own `changes-dir`.
+When set, both the global and per-project directories are scanned for that project's fragments.
+The global `changes-dir` is optional when every project declares its own.
+
 Stories: [config](stories/config.md), [batch](stories/batch.md).
 
 ## R3: PVP versioning with auto-bumping (four-part: A.B.C.D)

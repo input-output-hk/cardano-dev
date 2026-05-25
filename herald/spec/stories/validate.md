@@ -20,7 +20,9 @@ Checks that projects with modified files on the current branch have at least one
 - Pre-existing fragments (committed before the fork) do not satisfy the requirement.
 - A fragment for the wrong project does not satisfy the modified project.
 - A malformed fragment does not satisfy the diff check.
-- Changes only in the `.changes/` directory (no project source files touched) do not trigger errors.
+- Changes only in changes directories (global or per-project) with no project source files touched do not trigger errors.
+- Files inside a per-project `changes-dir` are not treated as project source changes.
+- New fragments in per-project directories are recognised and count towards satisfying the requirement.
 - Deleted project files also require a fragment.
 - In a multi-project repo, only projects with modified files are checked.
 - When both projects are modified but only one has a fragment, only the uncovered project is flagged.
@@ -40,8 +42,14 @@ Checks that new fragments in the diff have the expected PR number.
 - `.yaml` extension is checked in addition to `.yml`.
 - No new fragments in the diff: passes (nothing to check).
 - Malformed YAML fragment in the diff: parse error.
+- New fragments in per-project directories are detected and checked.
 - PR validation only checks PR numbers, not full fragment validity.
   A fragment with unknown kinds and empty description but the correct PR number passes.
+
+## Project-directory mismatch validation
+
+When a fragment lives in a per-project `changes-dir` and contains an explicit `project:` field that names a different project, `herald validate` reports it as an error.
+This catches accidental miscategorisation from copy-paste or file moves between project directories.
 
 ## Acceptance criteria
 
@@ -72,13 +80,22 @@ Checks that new fragments in the diff have the expected PR number.
 22. Both projects modified, only one has fragment: only uncovered project flagged.
 23. Invalid fragment content still satisfies diff check (project-name presence only).
 24. Branch with no remote tracking: fork-point detection fails with a user-friendly error.
+25. Changes only in a per-project `changes-dir` (no project source files touched) are ignored.
+26. Files inside a per-project `changes-dir` are not treated as project source changes.
+27. New fragment in a per-project dir satisfies the requirement for that project.
 
 ### PR validation
-25. Wrong PR number is detected.
-26. Correct PR number passes.
-27. Only mismatched fragments reported.
-28. Template files are skipped.
-29. `.yaml` extension is also checked.
-30. No new fragments in diff: passes.
-31. Malformed fragment in diff: parse error.
-32. Invalid content with matching PR passes (PR-only check).
+28. Wrong PR number is detected.
+29. Correct PR number passes.
+30. Only mismatched fragments reported.
+31. Template files are skipped.
+32. `.yaml` extension is also checked.
+33. No new fragments in diff: passes.
+34. Malformed fragment in diff: parse error.
+35. Invalid content with matching PR passes (PR-only check).
+36. New fragment in a per-project dir with correct PR number passes.
+
+### Project-directory mismatch
+37. Fragment in a per-project dir with explicit `project:` naming a different project is an error.
+38. Fragment in a per-project dir with matching explicit `project:` passes.
+39. Fragment in a per-project dir with no `project:` field passes.

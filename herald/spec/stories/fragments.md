@@ -17,9 +17,17 @@ description: |
 pr: 1234
 ```
 
-All four fields are required: `project`, `kind`, `description`, `pr`.
-Missing any field is a parse error.
+All four fields are required in the global changes directory: `project`, `kind`, `description`, `pr`.
+Missing any field in the global directory is a parse error.
 Extra YAML fields are silently ignored.
+
+### `project` field in per-project directories
+
+When a fragment lives in a per-project `changes-dir` (see [config](config.md)), the `project:` field is optional.
+If omitted, the project is inferred from the directory.
+If present and it matches the directory's project, it is accepted.
+If present and it names a different project, it is a validation error (see [validate](validate.md)).
+This prevents accidental miscategorisation from copy-paste or file moves.
 
 ## Validation rules
 
@@ -35,13 +43,16 @@ Validation errors are collected (not short-circuited) and reported together.
 ## Fragment creation (`herald new`)
 
 Creates a fragment file in the changes directory.
+- When the project has a per-project `changes-dir`, the fragment is written there.
+  Otherwise it is written to the global `changes-dir`.
 - Spaces in the description are converted to hyphens in the generated filename.
 - Creating a fragment for a PR that already has one for the same project is an error (duplicate check).
+  The duplicate check scans both the global and per-project directories.
   The error message contains "already exists" and the existing filename.
 - The same PR number may have fragments for different projects (per-project deduplication, not global).
 - An unknown project or kind is rejected before writing any file.
   The error contains "Invalid fragment" and "Unknown project" or "Unknown kind".
-- `_TEMPLATE.yml` files in the changes directory are skipped by `readAllFragments`.
+- `_TEMPLATE.yml` files in any changes directory are skipped by `readAllFragments`.
 
 ## Acceptance criteria
 
@@ -71,6 +82,16 @@ Creates a fragment file in the changes directory.
 19. Invalid project errors before writing.
 20. Invalid kind errors before writing.
 
+### Per-project `changes-dir`
+21. Fragment in a per-project dir without `project:` field parses successfully; project is inferred from directory.
+22. Fragment in a per-project dir with matching `project:` field parses successfully.
+23. Fragment in a per-project dir with mismatching `project:` field is a validation error.
+24. Fragment in the global dir without `project:` field is a parse error.
+25. `herald new` writes to the per-project dir when the project has one configured.
+26. `herald new` writes to the global dir when the project has no per-project dir.
+27. Duplicate check for `herald new` scans both global and per-project directories.
+28. `_TEMPLATE.yml` in a per-project dir is skipped by `readAllFragments`.
+
 ### Version-file projects
-21. A fragment for a version-file-based project validates identically to a cabal-file project.
+29. A fragment for a version-file-based project validates identically to a cabal-file project.
     **Gap:** E2E coverage only; no unit test.
