@@ -25,10 +25,11 @@ If the version source has no parseable version, the downgrade check is skipped.
 
 ## Fragment handling
 
+- Fragments are collected from both the global `changes-dir` (if configured) and the project's per-project `changes-dir` (if configured).
 - No unreleased fragments for the package: returns `Nothing` (no-op, warns to stderr).
 - Invalid fragments (unknown kinds, unknown projects): hard error before any files are modified.
   A fragment mixing valid and invalid kinds is still rejected (valid kinds do not mask invalid ones).
-- Consumed fragment files are deleted after batching.
+- Consumed fragment files are deleted from their originating directory after batching.
 
 ## File requirements
 
@@ -39,6 +40,7 @@ If the version source has no parseable version, the downgrade check is skipped.
 ## Commit and tag modes
 
 - `--commit`: stages all modified files (changelog, version source, deleted fragments) and creates a git commit.
+  Deleted fragments are staged using their originating directory paths (global or per-project).
   The commit message contains `Release PACKAGE-VERSION`.
   Files belonging to other projects are not included.
 - `--commit-tag`: same as `--commit`, plus creates a `PACKAGE-VERSION` git tag.
@@ -113,3 +115,10 @@ A successful batch returns:
 34. When the project uses `version-file` only, the CHaP section is omitted.
 35. When the `cabal-file` path contains a directory component (e.g. `sub/pkg.cabal`), the `add-from-github.sh` invocation includes the subdir argument.
 36. When the `cabal-file` is at the repository root, no subdir argument is passed.
+
+### Per-project `changes-dir`
+37. Batch collects fragments from both global and per-project directories.
+38. Consumed fragments are deleted from their originating directory (not from a single hardcoded path).
+39. `--commit` stages fragment deletions using originating directory paths.
+40. Batch with fragments in both global and per-project dirs processes all of them.
+41. Batch with fragments only in the per-project dir (no global dir configured) succeeds.

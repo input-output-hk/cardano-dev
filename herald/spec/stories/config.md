@@ -25,9 +25,33 @@ projects:
   cardano-api:
     changelog: cardano-api/CHANGELOG.md
     cabal-file: cardano-api/cardano-api.cabal
+  cardano-api-gen:
+    changelog: cardano-api-gen/CHANGELOG.md
+    cabal-file: cardano-api-gen/cardano-api-gen.cabal
+    changes-dir: cardano-api-gen/.changes
 ```
 
 Missing `projects` or `kinds` is a parse error.
+
+### Global `changes-dir`
+
+The top-level `changes-dir` sets the shared fragment directory.
+It is optional when every project declares its own `changes-dir`.
+When absent and any project lacks a per-project `changes-dir`, it is a parse error naming the uncovered projects.
+
+### Per-project `changes-dir`
+
+Each project may declare an optional `changes-dir` that supplements the global directory.
+When set, both the global directory (if configured) and the per-project directory are scanned for that project's fragments.
+The `project:` field is optional for fragments in a per-project directory - see [fragments](fragments.md).
+
+### `changes-dir` validations
+
+The following are checked at config-load time:
+
+- No two projects may share the same `changes-dir` value (ambiguous project inference).
+- A per-project `changes-dir` must not be an ancestor or descendant of another per-project `changes-dir` (would cause double-counting).
+- If the global `changes-dir` is absent, every project must declare its own.
 
 ## Kind properties
 
@@ -124,11 +148,20 @@ Herald reads `.git/config` for remote detection during [init](init.md).
 24. Unrecognised URL passes through unchanged.
 25. SSH without colon, SSH with slash, HTTPS with no path all return `Nothing`.
 
+### Per-project `changes-dir`
+26. Project with `changes-dir` parses to `Just path`.
+27. Project without `changes-dir` parses to `Nothing`.
+28. `changes-dir` roundtrips through YAML encode/decode.
+29. Two projects with the same `changes-dir` value produce a parse error.
+30. A per-project `changes-dir` nested inside another per-project `changes-dir` produces a parse error.
+31. Global `changes-dir` absent with all projects having their own loads successfully.
+32. Global `changes-dir` absent with an uncovered project produces a parse error naming that project.
+
 ### Git config parsing
-26. Simple section.key lookups work.
-27. Subsection keys (`remote.origin.url`) are resolved.
-28. Missing key or section returns `Nothing`.
-29. Section names are case-insensitive.
-30. Subsection names are case-sensitive.
-31. Comment lines are ignored.
-32. Multiple subsections are resolved independently.
+33. Simple section.key lookups work.
+34. Subsection keys (`remote.origin.url`) are resolved.
+35. Missing key or section returns `Nothing`.
+36. Section names are case-insensitive.
+37. Subsection names are case-sensitive.
+38. Comment lines are ignored.
+39. Multiple subsections are resolved independently.
