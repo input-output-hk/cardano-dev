@@ -10,7 +10,7 @@ import Hedgehog (Property)
 import Hedgehog qualified as H
 import Hedgehog.Extras qualified as H
 import Test.Herald.Assertions (shouldContain)
-import Test.Herald.E2E.Fixtures (setupTestRepo)
+import Test.Herald.E2E.Fixtures.Standard (setupTestRepo)
 import Test.Herald.Fixtures (testConfigMultiProject)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.Hedgehog (testProperty)

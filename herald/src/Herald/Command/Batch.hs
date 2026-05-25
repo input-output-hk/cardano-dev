@@ -34,13 +34,13 @@ import Herald.Types
 import Herald.VersionFile (readVersionFile, writeVersionFile)
 
 -- | Result of a batch operation, for reporting to the user.
+-- Fragment paths are stored relative to the base directory.
 data BatchResult = BatchResult
   { batchResultVersion :: !Pvp
   , batchResultPackage :: !Text
   , batchResultFragments :: ![FilePath]
   , batchResultChangelog :: !FilePath
   , batchResultVersionPath :: !(Maybe FilePath)
-  , batchResultChangesDir :: !FilePath
   }
   deriving Show
 
@@ -57,7 +57,6 @@ batchPackage config baseDir package explicitVersion day = do
     maybe (throwHerald $ "Unknown project: " <> T.unpack package) pure
       . Map.lookup package
       $ configProjects config
-  let changesDir = baseDir </> configChangesDir config
 
   packagePairs <- readProjectFragments config baseDir package
 
@@ -105,7 +104,7 @@ batchPackage config baseDir package explicitVersion day = do
 
       -- Remove processed fragment files
       forM_ packagePairs $ \(file, _) ->
-        removeFile $ changesDir </> file
+        removeFile $ baseDir </> file
 
       pure
         . Just
@@ -115,7 +114,6 @@ batchPackage config baseDir package explicitVersion day = do
           , batchResultFragments = map fst packagePairs
           , batchResultChangelog = baseDir </> projectChangelog projectConfig
           , batchResultVersionPath = versionFilePath baseDir projectConfig
-          , batchResultChangesDir = configChangesDir config
           }
  where
   autoVersion currentVersion packageFragments = do
@@ -160,10 +158,8 @@ versionFilePath baseDir projectConfig = case projectVersionSource projectConfig 
 commitBatchResult :: FilePath -> BatchResult -> CommitMode -> IO ()
 commitBatchResult _ _ NoCommit = pure ()
 commitBatchResult baseDir result mode = do
-  let changesDir = batchResultChangesDir result
-      fragmentPaths = map (changesDir </>) $ batchResultFragments result
-      filesToStage =
-        fragmentPaths
+  let filesToStage =
+        batchResultFragments result
           <> [batchResultChangelog result]
           <> maybeToList (batchResultVersionPath result)
       pkg = T.unpack $ batchResultPackage result

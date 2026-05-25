@@ -45,7 +45,7 @@ initConfig baseDir configPath = do
   let config =
         Config
           { configGitRepo = gitRepo
-          , configChangesDir = ".changes"
+          , configChangesDir = Just ".changes"
           , configKinds = defaultKinds
           , configProjects = projects
           }
@@ -53,7 +53,7 @@ initConfig baseDir configPath = do
   writeUtf8 configPath $ renderCommentedConfig config
 
   -- Create the changes directory with a template fragment
-  let changesDir = baseDir </> configChangesDir config
+  let changesDir = baseDir </> fromMaybe ".changes" (configChangesDir config)
       templatePath = changesDir </> "_TEMPLATE.yml"
   createDirectoryIfMissing True changesDir
   writeUtf8 templatePath renderTemplate
@@ -72,7 +72,7 @@ renderCommentedConfig config =
       , ""
       , "# Directory for changelog fragments, relative to repo root"
       , "# Fragments are YAML files created by 'herald new' and consumed by 'herald batch'"
-      , "changes-dir: " <> T.pack (configChangesDir config)
+      , "changes-dir: " <> T.pack (fromMaybe ".changes" $ configChangesDir config)
       , ""
       , "# Change kinds and their properties"
       , "#"
@@ -159,19 +159,18 @@ discoverProjects baseDir = do
 
 -- | Check if the root directory itself is a single project (has exactly one .cabal file).
 probeRootProject :: FilePath -> IO (Maybe (Text, ProjectConfig))
-probeRootProject baseDir = do
-  cabalFile <- findSingleCabalFile baseDir
-  pure $ do
-    cf <- cabalFile
-    let name = T.pack $ dropExtension cf
-    guard $ not $ T.null name
-    Just
-      ( name
-      , ProjectConfig
-          { projectChangelog = "CHANGELOG.md"
-          , projectVersionSource = Just $ CabalFile cf
-          }
-      )
+probeRootProject baseDir = runMaybeT $ do
+  cf <- MaybeT $ findSingleCabalFile baseDir
+  let name = T.pack $ dropExtension cf
+  guard $ not $ T.null name
+  pure
+    ( name
+    , ProjectConfig
+        { projectChangelog = "CHANGELOG.md"
+        , projectVersionSource = Just $ CabalFile cf
+        , projectChangesDir = Nothing
+        }
+    )
 
 -- | Probe a subdirectory as a project.
 -- All non-hidden directories are treated as projects. A .cabal file is detected if present.
@@ -189,6 +188,7 @@ probeSubProject baseDir entry = runMaybeT $ do
     , ProjectConfig
         { projectChangelog = entry </> "CHANGELOG.md"
         , projectVersionSource = versionSource
+        , projectChangesDir = Nothing
         }
     )
 

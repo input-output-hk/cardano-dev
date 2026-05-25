@@ -1,6 +1,7 @@
 module Test.Herald.Config (tests) where
 
 import Data.ByteString (isInfixOf)
+import Data.Functor (void)
 import Data.Text qualified as T
 import Data.Text.Encoding (encodeUtf8)
 import Data.Yaml (decodeEither', encode)
@@ -214,11 +215,7 @@ prop_load_version_file_config = H.propertyOnce $ do
         ]
     loadConfig configPath
 
-  case result of
-    Left err -> do
-      H.annotate err
-      H.failure
-    Right _ -> H.success
+  void $ H.leftFail result
 
 -- | A config where a project has both cabal-file and version-file fails to load
 -- with a message mentioning both fields.

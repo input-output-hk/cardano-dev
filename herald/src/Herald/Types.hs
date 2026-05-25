@@ -7,12 +7,16 @@ module Herald.Types
   , HeraldException (..)
   , throwHerald
   , defaultKinds
+  , resolveChangesDir
+  , allChangesDirs
+  , findDirProject
   )
 where
 
 import RIO
 
 import Data.Aeson (FromJSON (..), ToJSON (..), object, withObject, (.:), (.:?), (.=))
+import Data.List (isPrefixOf, nub)
 import Data.Map.Strict qualified as Map
 
 import Herald.Pvp (BumpLevel, Pvp (..), parsePvp, showPvp)
@@ -89,6 +93,7 @@ data VersionSource
 data ProjectConfig = ProjectConfig
   { projectChangelog :: !FilePath
   , projectVersionSource :: !(Maybe VersionSource)
+  , projectChangesDir :: !(Maybe FilePath)
   }
   deriving (Eq, Show)
 
@@ -97,12 +102,13 @@ instance FromJSON ProjectConfig where
     changelog <- o .: "changelog"
     mCabal <- o .:? "cabal-file"
     mVersionFile <- o .:? "version-file"
+    changesDir <- o .:? "changes-dir"
     versionSource <- case (mCabal, mVersionFile) of
       (Just _, Just _) -> fail "cabal-file and version-file are mutually exclusive; specify only one"
       (Just cabalFile, Nothing) -> pure . Just $ CabalFile cabalFile
       (Nothing, Just versionFile) -> pure . Just $ VersionFile versionFile
       (Nothing, Nothing) -> pure Nothing
-    pure $ ProjectConfig changelog versionSource
+    pure $ ProjectConfig changelog versionSource changesDir
 
 instance ToJSON ProjectConfig where
   toJSON projectConfig =
@@ -112,10 +118,11 @@ instance ToJSON ProjectConfig where
         Just (CabalFile cabalFile) -> ["cabal-file" .= cabalFile]
         Just (VersionFile versionFile) -> ["version-file" .= versionFile]
         Nothing -> []
+      <> maybe [] (\d -> ["changes-dir" .= d]) (projectChangesDir projectConfig)
 
 data Config = Config
   { configGitRepo :: !Text
-  , configChangesDir :: !FilePath
+  , configChangesDir :: !(Maybe FilePath)
   , configKinds :: !(Map Text KindDef)
   , configProjects :: !(Map Text ProjectConfig)
   }
@@ -127,7 +134,7 @@ instance FromJSON Config where
       <$> o
       .: "git-repo"
       <*> o
-      .: "changes-dir"
+      .:? "changes-dir"
       <*> o
       .: "kinds"
       <*> o
@@ -136,11 +143,35 @@ instance FromJSON Config where
 instance ToJSON Config where
   toJSON c =
     object
-      [ "git-repo" .= configGitRepo c
-      , "changes-dir" .= configChangesDir c
-      , "kinds" .= configKinds c
-      , "projects" .= configProjects c
-      ]
+      $ ["git-repo" .= configGitRepo c]
+      <> maybe [] (\d -> ["changes-dir" .= d]) (configChangesDir c)
+      <> ["kinds" .= configKinds c, "projects" .= configProjects c]
+
+-- | Resolve the changes directory for a specific project.
+-- Per-project dir takes priority; falls back to global dir.
+resolveChangesDir :: Config -> Text -> Maybe FilePath
+resolveChangesDir config projectName = do
+  pc <- Map.lookup projectName (configProjects config)
+  projectChangesDir pc <|> configChangesDir config
+
+-- | All distinct changes directories from the config (global + per-project).
+allChangesDirs :: Config -> [FilePath]
+allChangesDirs config =
+  nub
+    $ maybeToList (configChangesDir config)
+    <> mapMaybe projectChangesDir (Map.elems (configProjects config))
+
+-- | Given a file path, determine which per-project changes-dir it belongs to.
+-- Returns the project name if the path is inside a per-project dir, Nothing
+-- for the global dir.
+findDirProject :: Config -> FilePath -> Maybe Text
+findDirProject config path =
+  listToMaybe
+    [ projectName
+    | (projectName, pc) <- Map.toList $ configProjects config
+    , Just dir <- [projectChangesDir pc]
+    , (dir <> "/") `isPrefixOf` path
+    ]
 
 -- | Default kinds shipped with every new herald config.
 defaultKinds :: Map Text KindDef

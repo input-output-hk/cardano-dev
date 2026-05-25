@@ -7,6 +7,8 @@ where
 
 import RIO
 
+import Data.Aeson qualified as Aeson
+import Data.Aeson.Types (parseEither)
 import Data.List (isPrefixOf)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
@@ -14,20 +16,27 @@ import Data.Text qualified as T
 import Data.Yaml qualified as Yaml
 import System.FilePath (takeDirectory, takeExtension, takeFileName, (</>))
 
-import Herald.Fragment (validateFragment)
+import Herald.Fragment (validateDirConsistency, validateFragment)
+import Herald.Fragment.Read (injectProject)
 import Herald.Git (addedFiles, changedFiles, findForkPoint)
-import Herald.Types (Config (..), Fragment (..), ProjectConfig (..))
+import Herald.Types (Config (..), Fragment (..), ProjectConfig (..), allChangesDirs, findDirProject)
 
 -- | Validate a list of fragment files against the config.
+-- Paths are relative to @baseDir@.
 -- Returns a list of error messages. Empty list means all valid.
-validateFiles :: Config -> [FilePath] -> IO [Text]
-validateFiles config paths = do
-  results <- forM paths $ \path -> do
-    let prefix e = T.pack path <> ": " <> e
-    result <- Yaml.decodeFileEither path
+validateFiles :: Config -> FilePath -> [FilePath] -> IO [Text]
+validateFiles config baseDir paths = do
+  results <- forM paths $ \relPath -> do
+    let fullPath = baseDir </> relPath
+        prefix e = T.pack relPath <> ": " <> e
+        mDirProject = findDirProject config relPath
+    result <- parseFragmentWithInference fullPath mDirProject
     pure $ case result of
-      Left err -> [prefix . T.pack $ Yaml.prettyPrintParseException err]
-      Right (frag :: Fragment) -> map prefix $ validateFragment config frag
+      Left err -> [prefix $ T.pack err]
+      Right frag ->
+        let contentErrors = validateFragment config frag
+            dirErrors = maybe [] (\dp -> validateDirConsistency config dp frag) mDirProject
+         in map prefix $ contentErrors <> dirErrors
   pure $ concat results
 
 -- | Check that every project with files changed since the fork point has at
@@ -42,32 +51,37 @@ validateDiff config baseDir = do
     Just base -> do
       changed <- changedFiles baseDir base
       added <- addedFiles baseDir base
-      let changesPrefix = configChangesDir config
-          newFragmentPaths = filter (isNewFragment changesPrefix) added
+      let changesPrefixes = allChangesDirs config
+          newFragmentPaths = filter (isNewFragment changesPrefixes) added
       newFragments <- forM newFragmentPaths $ \path -> do
         let fullPath = baseDir </> path
-        result <- Yaml.decodeFileEither fullPath
+            mDirProject = findDirProject config path
+        result <- parseFragmentWithInference fullPath mDirProject
         pure $ case result of
           Left _ -> Nothing
-          Right (frag :: Fragment) -> Just frag
+          Right frag -> case mDirProject of
+            Nothing -> Just frag
+            Just dirProject
+              | null (validateDirConsistency config dirProject frag) -> Just frag
+              | otherwise -> Nothing
       let fragmentProjects =
             Set.fromList . map fragmentProject $ catMaybes newFragments
       pure
-        . mapMaybe (checkProject changesPrefix changed fragmentProjects)
+        . mapMaybe (checkProject changesPrefixes changed fragmentProjects)
         . Map.toList
         $ configProjects config
 
 -- | Check a single project: if any of its files were changed, it must have
 -- a fragment.
 checkProject
-  :: FilePath
+  :: [FilePath]
   -> [FilePath]
   -> Set.Set Text
   -> (Text, ProjectConfig)
   -> Maybe Text
-checkProject changesPrefix changed fragmentProjects (projectName, projectConfig) =
+checkProject changesPrefixes changed fragmentProjects (projectName, projectConfig) =
   let projectDir = takeDirectory $ projectChangelog projectConfig
-      modified = filter (fileInProject changesPrefix projectDir) changed
+      modified = filter (fileInProject changesPrefixes projectDir) changed
    in if null modified || Set.member projectName fragmentProjects
         then Nothing
         else
@@ -75,19 +89,14 @@ checkProject changesPrefix changed fragmentProjects (projectName, projectConfig)
             $ "Project "
             <> projectName
             <> " has modified files but no changelog fragment.\n"
-            <> "  Copy "
-            <> T.pack changesPrefix
-            <> "/_TEMPLATE.yml to "
-            <> T.pack changesPrefix
-            <> "/<your-fragment>.yml and fill it in,\n"
-            <> "  or run: herald new"
+            <> "  Run: herald new"
 
 -- | Check whether a file belongs to a project directory.
--- Excludes files in the changes directory (fragments shouldn't trigger
+-- Excludes files in any changes directory (fragments shouldn't trigger
 -- themselves).
-fileInProject :: FilePath -> FilePath -> FilePath -> Bool
-fileInProject changesDir _ file
-  | (changesDir <> "/") `isPrefixOf` file = False
+fileInProject :: [FilePath] -> FilePath -> FilePath -> Bool
+fileInProject changesDirs _ file
+  | any (\d -> (d <> "/") `isPrefixOf` file) changesDirs = False
 fileInProject _ "." _ = True
 fileInProject _ projectDir file =
   (projectDir <> "/") `isPrefixOf` file
@@ -102,15 +111,16 @@ validatePR config baseDir expectedPR = do
       pure ["Could not determine fork point - is this branch tracking a remote?"]
     Just base -> do
       added <- addedFiles baseDir base
-      let changesPrefix = configChangesDir config
-          newFragments = filter (isNewFragment changesPrefix) added
+      let changesPrefixes = allChangesDirs config
+          newFragments = filter (isNewFragment changesPrefixes) added
       results <- forM newFragments $ \path -> do
         let fullPath = baseDir </> path
-        result <- Yaml.decodeFileEither fullPath
+            mDirProject = findDirProject config path
+        result <- parseFragmentWithInference fullPath mDirProject
         pure $ case result of
           Left err ->
-            [T.pack path <> ": " <> T.pack (Yaml.prettyPrintParseException err)]
-          Right (frag :: Fragment)
+            [T.pack path <> ": " <> T.pack err]
+          Right frag
             | fragmentPR frag /= expectedPR ->
                 [ T.pack path
                     <> ": PR number "
@@ -121,12 +131,21 @@ validatePR config baseDir expectedPR = do
             | otherwise -> []
       pure $ concat results
 
--- | Check whether a path is a new changelog fragment file in the changes
--- directory.  Template files (starting with @_@) are excluded.
-isNewFragment :: FilePath -> FilePath -> Bool
-isNewFragment prefix path =
-  (prefix <> "/")
-    `isPrefixOf` path
+-- | Check whether a path is a new changelog fragment file in any of the
+-- changes directories. Template files (starting with @_@) are excluded.
+isNewFragment :: [FilePath] -> FilePath -> Bool
+isNewFragment prefixes path =
+  any (\prefix -> (prefix <> "/") `isPrefixOf` path) prefixes
     && takeExtension path
     `elem` [".yml", ".yaml"]
     && not ("_" `isPrefixOf` takeFileName path)
+
+-- | Parse a fragment file, injecting the project field from the directory
+-- if the file is in a per-project changes-dir and lacks a project field.
+parseFragmentWithInference :: FilePath -> Maybe Text -> IO (Either String Fragment)
+parseFragmentWithInference fullPath mDirProject = do
+  result <- Yaml.decodeFileEither @Aeson.Value fullPath
+  pure $ do
+    value <- first Yaml.prettyPrintParseException result
+    let value' = maybe value (`injectProject` value) mDirProject
+    parseEither Aeson.parseJSON value'

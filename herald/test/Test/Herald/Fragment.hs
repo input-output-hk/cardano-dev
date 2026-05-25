@@ -13,7 +13,7 @@ import Test.Herald.Fixtures (testConfig)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.Hedgehog (testProperty)
 
-import Herald.Fragment (validateFragment)
+import Herald.Fragment (validateFragment, validateFragmentDir)
 import Herald.Types (Fragment (..))
 
 tests :: TestTree
@@ -40,6 +40,18 @@ tests =
         , testProperty "negative PR" prop_validate_negative_pr
         , testProperty "empty kinds list" prop_validate_empty_kinds
         , testProperty "extra YAML fields are silently ignored" prop_parse_extra_fields
+        ]
+    , testGroup
+        "project-directory mismatch"
+        [ testProperty
+            "mismatching project in per-project dir is an error"
+            prop_validate_dir_mismatch
+        , testProperty
+            "matching project in per-project dir passes"
+            prop_validate_dir_match
+        , testProperty
+            "directory not in config is rejected"
+            prop_validate_dir_no_project
         ]
     ]
 
@@ -259,3 +271,43 @@ prop_parse_extra_fields = H.propertyOnce $ do
   fragmentKinds frag === ["bugfix"]
   fragmentDescription frag === "Fix something"
   fragmentPR frag === 42
+
+-- project-directory mismatch tests
+
+-- | A fragment in a per-project dir with explicit project naming a different
+-- project produces a validation error.
+prop_validate_dir_mismatch :: Property
+prop_validate_dir_mismatch = H.propertyOnce $ do
+  let frag =
+        Fragment
+          { fragmentProject = "cardano-api-gen"
+          , fragmentKinds = ["bugfix"]
+          , fragmentDescription = "Fix something"
+          , fragmentPR = 42
+          }
+  shouldFail $ validateFragmentDir testConfig "cardano-api" frag
+
+-- | A fragment in a per-project dir with matching explicit project passes.
+prop_validate_dir_match :: Property
+prop_validate_dir_match = H.propertyOnce $ do
+  let frag =
+        Fragment
+          { fragmentProject = "cardano-api"
+          , fragmentKinds = ["bugfix"]
+          , fragmentDescription = "Fix something"
+          , fragmentPR = 42
+          }
+  shouldPass $ validateFragmentDir testConfig "cardano-api" frag
+
+-- | A fragment in a per-project dir whose directory name does not match any
+-- project in the config is rejected.
+prop_validate_dir_no_project :: Property
+prop_validate_dir_no_project = H.propertyOnce $ do
+  let frag =
+        Fragment
+          { fragmentProject = "cardano-api"
+          , fragmentKinds = ["bugfix"]
+          , fragmentDescription = "Fix something"
+          , fragmentPR = 42
+          }
+  shouldFail $ validateFragmentDir testConfig "nonexistent-project" frag
