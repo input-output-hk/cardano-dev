@@ -1,8 +1,8 @@
 name: Herald Release
 description: >
-  Batch changelog fragments for a package, create a release commit and tag,
+  Batch changelog fragments for a package, create a release commit,
   open a pull request on a release branch, and add a release changelog fragment
-  for the next cycle.
+  for the next cycle. The tag is created manually during signing.
 
 inputs:
   package:
@@ -28,6 +28,12 @@ inputs:
       repository's default branch.
     required: false
     default: ''
+  chap-instructions:
+    description: >
+      Include CHaP PR instructions in the release PR body.
+      Only applies to projects with a cabal-file in the herald config.
+    required: false
+    default: 'false'
 
 outputs:
   pr-url:
@@ -40,7 +46,7 @@ outputs:
     description: The released version (computed or explicit).
     value: ${{ steps.version.outputs.value }}
   tag:
-    description: The git tag created for the release.
+    description: The git tag name for the release (created during signing, not by this action).
     value: ${{ steps.version.outputs.value && format('{0}-{1}', inputs.package, steps.version.outputs.value) }}
 
 runs:
@@ -102,19 +108,6 @@ runs:
           echo "value=$VERSION" >> "$GITHUB_OUTPUT"
         fi
 
-    - name: Check tag does not exist
-      shell: bash
-      run: |
-        TAG="${{ inputs.package }}-${{ steps.version.outputs.value }}"
-        if git rev-parse "$TAG" >/dev/null 2>&1; then
-          echo "::error::Tag $TAG already exists locally. Delete it before re-running."
-          exit 1
-        fi
-        if git ls-remote --tags origin "refs/tags/$TAG" | grep -q .; then
-          echo "::error::Tag $TAG already exists on remote. Delete it before re-running."
-          exit 1
-        fi
-
     - name: Create release branch
       shell: bash
       run: |
@@ -133,13 +126,12 @@ runs:
           VERSION_ARG="--version ${{ inputs.version }}"
         fi
 
-        $HERALD $CONFIG batch "${{ inputs.package }}" --commit-tag $VERSION_ARG
+        $HERALD $CONFIG batch "${{ inputs.package }}" --commit $VERSION_ARG
 
-    - name: Push release branch and tag
+    - name: Push release branch
       shell: bash
       run: |
         git push -q --force -u origin "$RELEASE_BRANCH"
-        git push -q origin "$RELEASE_TAG"
 
     - name: Create or reuse pull request
       id: pr
@@ -182,33 +174,58 @@ runs:
         VERSION="${{ steps.version.outputs.value }}"
         PR_NUMBER="${{ steps.pr.outputs.number }}"
 
-        $HERALD $CONFIG new \
-          --project "$PACKAGE" \
-          --kind release \
-          --description "Release $PACKAGE $VERSION" \
-          --pr "$PR_NUMBER"
+        if grep -rlq "kind:" .changes/ 2>/dev/null \
+            | xargs -r grep -l "release" \
+            | xargs -r grep -l "project: $PACKAGE" \
+            | xargs -r grep -lq "Release $PACKAGE $VERSION"; then
+          echo "::notice::Release fragment for $PACKAGE $VERSION already exists, skipping"
+        else
+          $HERALD $CONFIG new \
+            --project "$PACKAGE" \
+            --kind release \
+            --description "Release $PACKAGE $VERSION" \
+            --pr "$PR_NUMBER"
+        fi
 
         git add .changes/
-        git commit --no-verify --no-gpg-sign \
-          -m "Add release changelog fragment for $PACKAGE $VERSION"
-        git push --force
+        git diff --cached --quiet || \
+          git commit --no-verify --no-gpg-sign \
+            -m "Add release changelog fragment for $PACKAGE $VERSION"
+        git push --force origin "$RELEASE_BRANCH"
 
     - name: Update PR body
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
+        set -euo pipefail
         PACKAGE="${{ inputs.package }}"
         VERSION="${{ steps.version.outputs.value }}"
         DEFAULT_BRANCH="${{ steps.default-branch.outputs.name }}"
         TAG="$RELEASE_TAG"
         BRANCH="$RELEASE_BRANCH"
         PR_NUMBER="${{ steps.pr.outputs.number }}"
+        ACTOR="${GITHUB_ACTOR:-}"
+        REPO_URL="https://github.com/${{ github.repository }}"
         COMMIT_COUNT=$(git rev-list --count "origin/${DEFAULT_BRANCH}..HEAD")
-        # The tag is on the batch commit, which is one before the release fragment
-        TAG_OFFSET=$((COMMIT_COUNT - 1))
+        CONFIG="${{ inputs.config }}"
+        CABAL_FILE=$(yq -r ".projects.\"${PACKAGE}\".\"cabal-file\" // \"\"" "$CONFIG")
 
-        cat > /tmp/pr-body.md <<EOF
+        SUBDIR_ARG=""
+        if [ -n "$CABAL_FILE" ]; then
+          SUBDIR=$(dirname "$CABAL_FILE")
+          if [ "$SUBDIR" != "." ]; then
+            SUBDIR_ARG=" $SUBDIR"
+          fi
+        fi
+
+        if [ -n "$ACTOR" ]; then
+          printf 'Triggered by @%s\n\n' "$ACTOR" > /tmp/pr-body.md
+        else
+          : > /tmp/pr-body.md
+        fi
+
+        cat >> /tmp/pr-body.md <<EOF
         ## Summary
 
         - Batch changelog fragments for \`$PACKAGE\` into version \`$VERSION\`
@@ -216,20 +233,52 @@ runs:
         - Bump \`.cabal\` version to \`$VERSION\`
         - Remove consumed changelog fragments
         - Add release changelog fragment for the next cycle
-        - Tag: \`$TAG\`
 
         ## Before merging
 
-        The commits in this PR are **unsigned**. To sign them before merging, run:
+        ### Step 1: Sign the release
+
+        The commits in this PR are **unsigned** and the tag has not been created yet. Run on a clean working tree:
 
         \`\`\`bash
         git fetch origin $BRANCH
-        git checkout $BRANCH
+        git checkout -B $BRANCH origin/$BRANCH
         git rebase HEAD~${COMMIT_COUNT} --exec 'git commit --amend --no-edit -S'
-        git tag -f $TAG HEAD~${TAG_OFFSET}
+        git tag -s $TAG HEAD~$((COMMIT_COUNT - 1))  # batch commit, one before HEAD
         git push --force origin $BRANCH
-        git push --force origin $TAG
+        git push origin $TAG
         \`\`\`
+        EOF
+
+        if [ "${{ inputs.chap-instructions }}" = "true" ] && [ -n "$CABAL_FILE" ]; then
+          cat >> /tmp/pr-body.md <<'CHAP'
+
+        ### Step 2: Submit to CHaP
+
+        Requires: signed tag pushed to remote (step 1 complete), [gh](https://cli.github.com/) installed and authenticated.
+
+        Run in your [cardano-haskell-packages](https://github.com/intersectmbo/cardano-haskell-packages) checkout:
+
+        ```bash
+        set -euo pipefail
+        git fetch origin
+        git checkout -b __TAG__ origin/main
+        TAG_SHA=$(git ls-remote __REPO__ refs/tags/__TAG__ | cut -f1)
+        ./scripts/add-from-github.sh __REPO__ "$TAG_SHA"__SUBDIR__
+        git push -u origin __TAG__
+        CHAP_PR=$(gh pr create --repo intersectmbo/cardano-haskell-packages \
+          --head __TAG__ \
+          --title "Add __TAG__" \
+          --body "From __REPO__ tag __TAG__")
+        echo ">> CHaP PR: $CHAP_PR"
+        gh pr comment __PR_NUMBER__ --repo __GH_REPO__ \
+          --body "- $CHAP_PR"
+        ```
+        CHAP
+          sed -i "s|__TAG__|$TAG|g; s|__REPO__|$REPO_URL|g; s|__SUBDIR__|$SUBDIR_ARG|g; s|__PR_NUMBER__|$PR_NUMBER|g; s|__GH_REPO__|${{ github.repository }}|g" /tmp/pr-body.md
+        fi
+
+        cat >> /tmp/pr-body.md <<EOF
 
         Generated with [herald](https://github.com/input-output-hk/cardano-dev)
         EOF

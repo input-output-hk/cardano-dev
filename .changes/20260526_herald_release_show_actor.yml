@@ -1,0 +1,6 @@
+project: herald-release
+pr: 40
+kind:
+  - feature
+description: |
+  Show who triggered the release in the PR body. The action reads GITHUB_ACTOR from the runner environment and adds "Triggered by @USERNAME" at the top of the PR description.

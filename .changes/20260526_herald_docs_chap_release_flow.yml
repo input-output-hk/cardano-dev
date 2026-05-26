@@ -1,0 +1,6 @@
+project: herald
+pr: 40
+kind:
+  - documentation
+description: |
+  Update README, spec requirements, ADR, and batch stories to reflect deferred tagging, release PR resilience improvements, CHaP submission instructions, and trigger author visibility.

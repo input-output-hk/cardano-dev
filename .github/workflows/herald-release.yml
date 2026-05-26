@@ -5,10 +5,10 @@
 # What it does:
 #   1. Batches changelog fragments into a new changelog section
 #   2. Bumps the version (cabal file or version.txt, auto-computed or explicit)
-#   3. Creates a release commit and PACKAGE-VERSION tag
+#   3. Creates a release commit (tag is deferred to the manual signing step)
 #   4. Adds a release changelog fragment for the next cycle
 #   5. Pushes to a release/PACKAGE-VERSION branch
-#   6. Opens a PR with instructions for signing the commits
+#   6. Opens a PR with signing instructions (and optionally CHaP submission commands)
 
 name: Release
 

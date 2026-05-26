@@ -1,0 +1,6 @@
+project: herald-release
+pr: 40
+kind:
+  - feature
+description: |
+  Optionally include CHaP PR submission instructions in the release PR body. When chap-instructions is enabled and the project has a cabal-file, the PR body shows copy-paste commands for creating the CHaP PR after signing.

@@ -90,11 +90,11 @@ A `workflow_dispatch` action takes a package name and an optional PVP version st
 2. Collects unreleased fragments for that package.
 3. Generates the version's changelog section.
 4. Updates the version source (`.cabal` file or version file).
-5. Creates a release commit and `PACKAGE-VERSION` tag.
+5. Creates a release commit (tag is deferred to the manual signing step).
 6. Pushes to a `release/PACKAGE-VERSION` branch.
 7. Opens a PR with the changes.
-8. Creates a release changelog fragment for the next cycle.
-9. Updates the PR body with commit signing instructions.
+8. Creates a release changelog fragment for the next cycle (idempotent on re-runs).
+9. Updates the PR body with the trigger author, commit signing instructions, and optionally CHaP submission commands.
 
 Provided as reusable composite GitHub Actions (`herald-validate` and `herald-release`).
 
@@ -130,6 +130,20 @@ Herald reads, bumps, and writes the version file identically to a `.cabal` versi
 
 Stories: [version-sources](stories/version-sources.md), [config](stories/config.md).
 Decisions: [ADR 002](decisions/002-version-file.md).
+
+## R12: Release PR shows trigger author
+
+The release PR body identifies the GitHub user who triggered the workflow.
+This improves auditability and makes it clear who to contact about signing.
+The `herald-release` composite action reads `GITHUB_ACTOR` from the runner environment and includes "Triggered by @USERNAME" in the PR body.
+
+## R13: CHaP submission instructions in release PR
+
+The release PR body includes copy-paste commands for creating a CHaP PR after signing.
+Only shown for projects with a `cabal-file` in `.herald.yml`; version-file-only projects omit the section.
+The commands resolve the tag SHA at execution time, so they work correctly after the signing rebase.
+
+Stories: [batch](stories/batch.md).
 
 ---
 

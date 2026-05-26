@@ -1,0 +1,6 @@
+project: herald-release
+pr: 40
+kind:
+  - bugfix
+description: |
+  Improve release action resilience: skip tag creation (deferred to signing), make release fragment idempotent on re-runs, add set -euo pipefail to PR body generation, and use explicit push targets.
