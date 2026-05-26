@@ -313,23 +313,26 @@ jobs:
 The release action:
 1. Computes the next version (auto or explicit)
 2. Creates a `release/PACKAGE-VERSION` branch
-3. Batches changelog fragments, commits, and tags (`--commit-tag`)
-4. Pushes the branch and tag
-5. Opens a PR with the changes
-6. Creates a release changelog fragment for the next cycle
-7. Updates the PR body with signing instructions
+3. Batches changelog fragments and commits (`--commit`)
+4. Pushes the branch
+5. Opens a PR (shows trigger author, signing instructions, optionally CHaP submission commands)
+6. Creates a release changelog fragment for the next cycle (idempotent on re-runs)
 
-Since the commits are unsigned (created by `github-actions[bot]`), the PR body
-includes exact git commands for the maintainer to sign the commits before merging:
+Since the commits are unsigned (created by `github-actions[bot]`) and the tag has
+not been created yet, the PR body includes exact git commands for the maintainer
+to sign the commits and create the signed tag before merging:
 
 ```bash
 git fetch origin release/cardano-api-9.0.0.0
-git checkout release/cardano-api-9.0.0.0
+git checkout -B release/cardano-api-9.0.0.0 origin/release/cardano-api-9.0.0.0
 git rebase HEAD~2 --exec 'git commit --amend --no-edit -S'
-git tag -f cardano-api-9.0.0.0 HEAD~1
-git push --force-with-lease origin release/cardano-api-9.0.0.0
-git push --force origin cardano-api-9.0.0.0
+git tag -s cardano-api-9.0.0.0 HEAD~1
+git push --force origin release/cardano-api-9.0.0.0
+git push origin cardano-api-9.0.0.0
 ```
+
+For projects with a `cabal-file` in `.herald.yml`, the PR body can also include
+copy-paste commands for creating a CHaP PR (enabled via the `chap-instructions` input).
 
 ## CLI reference
 

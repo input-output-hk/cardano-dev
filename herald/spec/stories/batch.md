@@ -107,3 +107,9 @@ A successful batch returns:
 ### Result fields
 31. `BatchResult` contains correct package name, version, changelog path, and version source path.
 32. Version-file `BatchResult` has correct fields.
+
+### CHaP submission instructions (release PR body)
+33. When `chap-instructions` is enabled and the project has a `cabal-file`, the release PR body includes a "Step 2: Submit to CHaP" section with copy-paste commands (branch creation, `add-from-github.sh` with repo URL and subdir, push, `gh pr create`, `gh pr comment`).
+34. When the project uses `version-file` only, the CHaP section is omitted.
+35. When the `cabal-file` path contains a directory component (e.g. `sub/pkg.cabal`), the `add-from-github.sh` invocation includes the subdir argument.
+36. When the `cabal-file` is at the repository root, no subdir argument is passed.

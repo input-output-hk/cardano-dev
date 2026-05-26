@@ -87,6 +87,7 @@ Every approach requires a custom PVP version-bumping script - no tool provides t
 
 A fully custom tool (Herald) was built.
 It handles all requirements natively: PVP 4-part versioning with auto-bumping, multi-select kinds, mono-repo projects, non-notable filtering, fragment validation, and automated release PR creation.
-Tagging is incorporated via `herald batch --commit-tag`, replacing the need for a separate `tag.sh` script.
+Tagging is available via `herald batch --commit-tag`, replacing the need for a separate `tag.sh` script.
+The release action uses `--commit` only; tagging is deferred to the manual signing step.
 
 Herald is implemented in Haskell, built with nix (GHC 9.12.2), and distributed as a flake app at `github:input-output-hk/cardano-dev#herald`.
