@@ -1,0 +1,5 @@
+description: Release herald 0.1.2.0
+kind:
+- release
+pr: 41
+project: herald
