@@ -1,8 +1,0 @@
-project: herald-release
-pr: 42
-kind:
-  - bugfix
-description: |
-  Fix the release action never adding the changelog fragment for the next cycle: its check for an already existing fragment always matched, so the step always skipped.
-  The step no longer assumes fragments live in `.changes/`, so it works with per-project changes directories.
-  Fix the signing instructions in the release PR creating a tag without a message, which left `git tag` waiting for an editor and failing when the message was empty.
