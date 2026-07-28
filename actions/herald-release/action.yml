@@ -115,6 +115,7 @@ runs:
         git checkout -B "$BRANCH" "${{ steps.default-branch.outputs.name }}"
         echo "RELEASE_BRANCH=$BRANCH" >> "$GITHUB_ENV"
         echo "RELEASE_TAG=${{ inputs.package }}-${{ steps.version.outputs.value }}" >> "$GITHUB_ENV"
+        echo "RELEASE_BASE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
     - name: Batch changelog fragments
       shell: bash
@@ -174,20 +175,41 @@ runs:
         VERSION="${{ steps.version.outputs.value }}"
         PR_NUMBER="${{ steps.pr.outputs.number }}"
 
-        if grep -rlq "kind:" .changes/ 2>/dev/null \
-            | xargs -r grep -l "release" \
-            | xargs -r grep -l "project: $PACKAGE" \
-            | xargs -r grep -lq "Release $PACKAGE $VERSION"; then
-          echo "::notice::Release fragment for $PACKAGE $VERSION already exists, skipping"
+        # Look for an existing release fragment among tracked YAML files rather
+        # than a fixed directory, so this works whatever changes-dir a project
+        # uses.  The description line pins both package and version.
+        #
+        # The batch step above already consumed - and deleted - any fragment for
+        # this version, so search the base commit the release branch was created
+        # from as well: that is where a fragment left by an earlier run lives.
+        NEEDLE="description: Release $PACKAGE $VERSION"
+        EXISTING=$(git grep -lF "$NEEDLE" -- '*.yml' '*.yaml' || true)
+
+        if [ -z "$EXISTING" ] && [ -n "${RELEASE_BASE_SHA:-}" ]; then
+          EXISTING=$(git grep -lF "$NEEDLE" "$RELEASE_BASE_SHA" -- '*.yml' '*.yaml' || true)
+        fi
+
+        if [ -n "$EXISTING" ]; then
+          echo "::notice::Release fragment for $PACKAGE $VERSION already exists ($EXISTING), skipping"
         else
-          $HERALD $CONFIG new \
+          # herald resolves the project's changes-dir itself and prints the path
+          # it wrote, so the action never needs to know the directory layout.
+          OUTPUT=$($HERALD $CONFIG new \
             --project "$PACKAGE" \
             --kind release \
             --description "Release $PACKAGE $VERSION" \
-            --pr "$PR_NUMBER"
+            --pr "$PR_NUMBER")
+          echo "$OUTPUT"
+
+          FRAGMENT="${OUTPUT#Created changelog fragment: }"
+          if [ "$FRAGMENT" = "$OUTPUT" ] || [ ! -f "$FRAGMENT" ]; then
+            echo "::error::Could not determine the created fragment path from herald output: $OUTPUT"
+            exit 1
+          fi
+
+          git add -- "$FRAGMENT"
         fi
 
-        git add .changes/
         git diff --cached --quiet || \
           git commit --no-verify --no-gpg-sign \
             -m "Add release changelog fragment for $PACKAGE $VERSION"
@@ -244,7 +266,7 @@ runs:
         git fetch origin $BRANCH
         git checkout -B $BRANCH origin/$BRANCH
         git rebase HEAD~${COMMIT_COUNT} --exec 'git commit --amend --no-edit -S'
-        git tag -s $TAG HEAD~$((COMMIT_COUNT - 1))  # batch commit, one before HEAD
+        git tag -s -m "$PACKAGE $VERSION" $TAG HEAD~$((COMMIT_COUNT - 1))  # batch commit, one before HEAD
         git push --force origin $BRANCH
         git push origin $TAG
         \`\`\`
