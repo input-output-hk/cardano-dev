@@ -6,6 +6,7 @@ where
 
 import RIO
 
+import Control.Monad.Trans.Maybe (MaybeT, hoistMaybe)
 import Data.Char (isSpace)
 import Data.List (find)
 import Data.Text qualified as T
@@ -13,10 +14,10 @@ import Data.Text qualified as T
 import Herald.Pvp (Pvp, parsePvp, showPvp)
 
 -- | Read the version from a .cabal file.
-readCabalVersion :: FilePath -> IO (Maybe Pvp)
+readCabalVersion :: MonadIO m => FilePath -> MaybeT m Pvp
 readCabalVersion path = do
   content <- readFileUtf8 path
-  pure $ do
+  hoistMaybe $ do
     line <- find (T.isPrefixOf "version:") . map (T.filter (/= '\r')) $ T.lines content
     let versionStr = T.strip . T.drop (T.length "version:") $ line
     parsePvp $ T.unpack versionStr
@@ -25,7 +26,7 @@ readCabalVersion path = do
 -- All other lines are left byte-identical: line endings (LF or CRLF) and the
 -- presence or absence of a final trailing newline are preserved, as is the
 -- column alignment between @version:@ and its value.
-writeCabalVersion :: FilePath -> Pvp -> IO ()
+writeCabalVersion :: MonadIO m => FilePath -> Pvp -> m ()
 writeCabalVersion path version = do
   content <- readFileUtf8 path
   let newContent = T.intercalate "\n" . map replaceChunk $ T.splitOn "\n" content

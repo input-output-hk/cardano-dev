@@ -5,6 +5,7 @@ where
 
 import RIO
 
+import Control.Monad.Trans.Maybe (MaybeT, hoistMaybe, runMaybeT)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import System.FilePath ((</>))
@@ -20,17 +21,17 @@ import Herald.VersionFile (readVersionFile)
 -- | Compute the next version for a package based on unreleased fragments.
 -- Validates all fragments first so that invalid fragments (unknown kinds, etc.)
 -- cause a failure rather than being silently ignored by 'computeMaxBump'.
-nextVersion :: Config -> FilePath -> Text -> IO (Maybe Pvp)
+-- Fragment validation always runs, even when no version source is configured,
+-- so the current-version lookup is read as a plain value ('Maybe') here rather
+-- than short-circuiting immediately.
+nextVersion :: MonadIO m => Config -> FilePath -> Text -> MaybeT m Pvp
 nextVersion config baseDir package = do
   projectConfig <-
     maybe (throwHerald $ "Unknown project: " <> T.unpack package) pure
       . Map.lookup package
       $ configProjects config
 
-  currentVersion <- case projectVersionSource projectConfig of
-    Just (CabalFile cabalFile) -> readCabalVersion $ baseDir </> cabalFile
-    Just (VersionFile versionFile) -> Just <$> readVersionFile (baseDir </> versionFile)
-    Nothing -> pure Nothing
+  currentVersion <- lift . runMaybeT $ dispatchVersion projectConfig
 
   packagePairs <- readProjectFragments config baseDir package
 
@@ -46,8 +47,12 @@ nextVersion config baseDir package = do
 
   let packageFragments = map snd packagePairs
 
-  pure $ do
-    cv <- currentVersion
-    _ : _ <- Just packageFragments
-    let maxBump = computeMaxBump config packageFragments
-    Just $ bumpPvp maxBump cv
+  cv <- hoistMaybe currentVersion
+  guard . not $ null packageFragments
+  let maxBump = computeMaxBump config packageFragments
+  pure $ bumpPvp maxBump cv
+ where
+  dispatchVersion projectConfig = case projectVersionSource projectConfig of
+    Just (CabalFile cabalFile) -> readCabalVersion $ baseDir </> cabalFile
+    Just (VersionFile versionFile) -> lift $ readVersionFile (baseDir </> versionFile)
+    Nothing -> hoistMaybe Nothing

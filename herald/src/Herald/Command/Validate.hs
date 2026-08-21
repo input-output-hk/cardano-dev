@@ -7,6 +7,7 @@ where
 
 import RIO
 
+import Control.Monad.Trans.Maybe (runMaybeT)
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Types (parseEither)
 import Data.List (isPrefixOf)
@@ -24,7 +25,7 @@ import Herald.Types (Config (..), Fragment (..), ProjectConfig (..), allChangesD
 -- | Validate a list of fragment files against the config.
 -- Paths are relative to @baseDir@.
 -- Returns a list of error messages. Empty list means all valid.
-validateFiles :: Config -> FilePath -> [FilePath] -> IO [Text]
+validateFiles :: MonadIO m => Config -> FilePath -> [FilePath] -> m [Text]
 validateFiles config baseDir paths = do
   results <- forM paths $ \relPath -> do
     let fullPath = baseDir </> relPath
@@ -42,34 +43,32 @@ validateFiles config baseDir paths = do
 -- | Check that every project with files changed since the fork point has at
 -- least one *new* changelog fragment (created in the diff).  Pre-existing
 -- fragments committed before the fork point do not count.
-validateDiff :: Config -> FilePath -> IO [Text]
+validateDiff :: MonadIO m => Config -> FilePath -> m [Text]
 validateDiff config baseDir = do
-  forkPoint <- findForkPoint baseDir
-  case forkPoint of
-    Nothing ->
-      pure ["Could not determine fork point - is this branch tracking a remote?"]
-    Just base -> do
-      changed <- changedFiles baseDir base
-      added <- addedFiles baseDir base
-      let changesPrefixes = allChangesDirs config
-          newFragmentPaths = filter (isNewFragment changesPrefixes) added
-      newFragments <- forM newFragmentPaths $ \path -> do
-        let fullPath = baseDir </> path
-            mDirProject = findDirProject config path
-        result <- parseFragmentWithInference fullPath mDirProject
-        pure $ case result of
-          Left _ -> Nothing
-          Right frag -> case mDirProject of
-            Nothing -> Just frag
-            Just dirProject
-              | null (validateDirConsistency config dirProject frag) -> Just frag
-              | otherwise -> Nothing
-      let fragmentProjects =
-            Set.fromList . map fragmentProject $ catMaybes newFragments
-      pure
-        . mapMaybe (checkProject changesPrefixes changed fragmentProjects)
-        . Map.toList
-        $ configProjects config
+  mForkPoint <- runMaybeT $ findForkPoint baseDir
+  mErrors <- forM mForkPoint $ \base -> do
+    changed <- changedFiles baseDir base
+    added <- addedFiles baseDir base
+    let changesPrefixes = allChangesDirs config
+        newFragmentPaths = filter (isNewFragment changesPrefixes) added
+    newFragments <- forM newFragmentPaths $ \path -> do
+      let fullPath = baseDir </> path
+          mDirProject = findDirProject config path
+      result <- parseFragmentWithInference fullPath mDirProject
+      pure $ case result of
+        Left _ -> Nothing
+        Right frag ->
+          maybe
+            (Just frag)
+            (\dirProject -> if null (validateDirConsistency config dirProject frag) then Just frag else Nothing)
+            mDirProject
+    let fragmentProjects =
+          Set.fromList . map fragmentProject $ catMaybes newFragments
+    pure
+      . mapMaybe (checkProject changesPrefixes changed fragmentProjects)
+      . Map.toList
+      $ configProjects config
+  pure $ fromMaybe ["Could not determine fork point - is this branch tracking a remote?"] mErrors
 
 -- | Check a single project: if any of its files were changed, it must have
 -- a fragment.
@@ -103,33 +102,31 @@ fileInProject _ projectDir file =
 
 -- | Check that new changelog fragments on this branch have the expected PR number.
 -- Finds fragment files added since the fork point and verifies each one's PR field.
-validatePR :: Config -> FilePath -> Int -> IO [Text]
+validatePR :: MonadIO m => Config -> FilePath -> Int -> m [Text]
 validatePR config baseDir expectedPR = do
-  forkPoint <- findForkPoint baseDir
-  case forkPoint of
-    Nothing ->
-      pure ["Could not determine fork point - is this branch tracking a remote?"]
-    Just base -> do
-      added <- addedFiles baseDir base
-      let changesPrefixes = allChangesDirs config
-          newFragments = filter (isNewFragment changesPrefixes) added
-      results <- forM newFragments $ \path -> do
-        let fullPath = baseDir </> path
-            mDirProject = findDirProject config path
-        result <- parseFragmentWithInference fullPath mDirProject
-        pure $ case result of
-          Left err ->
-            [T.pack path <> ": " <> T.pack err]
-          Right frag
-            | fragmentPR frag /= expectedPR ->
-                [ T.pack path
-                    <> ": PR number "
-                    <> T.pack (show $ fragmentPR frag)
-                    <> " does not match expected "
-                    <> T.pack (show expectedPR)
-                ]
-            | otherwise -> []
-      pure $ concat results
+  mForkPoint <- runMaybeT $ findForkPoint baseDir
+  mErrors <- forM mForkPoint $ \base -> do
+    added <- addedFiles baseDir base
+    let changesPrefixes = allChangesDirs config
+        newFragments = filter (isNewFragment changesPrefixes) added
+    results <- forM newFragments $ \path -> do
+      let fullPath = baseDir </> path
+          mDirProject = findDirProject config path
+      result <- parseFragmentWithInference fullPath mDirProject
+      pure $ case result of
+        Left err ->
+          [T.pack path <> ": " <> T.pack err]
+        Right frag
+          | fragmentPR frag /= expectedPR ->
+              [ T.pack path
+                  <> ": PR number "
+                  <> T.pack (show $ fragmentPR frag)
+                  <> " does not match expected "
+                  <> T.pack (show expectedPR)
+              ]
+          | otherwise -> []
+    pure $ concat results
+  pure $ fromMaybe ["Could not determine fork point - is this branch tracking a remote?"] mErrors
 
 -- | Check whether a path is a new changelog fragment file in any of the
 -- changes directories. Template files (starting with @_@) are excluded.
@@ -142,9 +139,9 @@ isNewFragment prefixes path =
 
 -- | Parse a fragment file, injecting the project field from the directory
 -- if the file is in a per-project changes-dir and lacks a project field.
-parseFragmentWithInference :: FilePath -> Maybe Text -> IO (Either String Fragment)
+parseFragmentWithInference :: MonadIO m => FilePath -> Maybe Text -> m (Either String Fragment)
 parseFragmentWithInference fullPath mDirProject = do
-  result <- Yaml.decodeFileEither @Aeson.Value fullPath
+  result <- liftIO $ Yaml.decodeFileEither @Aeson.Value fullPath
   pure $ do
     value <- first Yaml.prettyPrintParseException result
     let value' = maybe value (`injectProject` value) mDirProject

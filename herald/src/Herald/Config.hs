@@ -16,9 +16,9 @@ import Herald.Types (Config (..), ProjectConfig (..))
 -- The @git-repo@ field is normalised so that bare @owner\/repo@ slugs,
 -- SSH URLs, and full HTTPS URLs all produce a usable HTTPS base URL.
 -- Validates per-project changes-dir constraints after parsing.
-loadConfig :: FilePath -> IO (Either String Config)
+loadConfig :: MonadIO m => FilePath -> m (Either String Config)
 loadConfig path = do
-  result <- first Yaml.prettyPrintParseException <$> Yaml.decodeFileEither path
+  result <- liftIO $ first Yaml.prettyPrintParseException <$> Yaml.decodeFileEither path
   pure $ do
     config <- result
     let normalised = config{configGitRepo = normaliseGitRepo $ configGitRepo config}

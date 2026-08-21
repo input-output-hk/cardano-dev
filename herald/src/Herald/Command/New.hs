@@ -34,7 +34,7 @@ data NewOptions = NewOptions
 -- | Create a new changelog fragment file.
 -- Uses scriv-style naming: @{YYYYMMDD_HHMMSS}_{user}_{branch}.yml@.
 -- Empty components (no user, no branch) are dropped.
-createFragment :: Config -> FilePath -> NewOptions -> IO FilePath
+createFragment :: MonadIO m => Config -> FilePath -> NewOptions -> m FilePath
 createFragment config baseDir opts = do
   let frag = Fragment (newProject opts) (newKinds opts) (newDescription opts) (newPR opts)
       errors = validateFragment config frag
@@ -64,25 +64,23 @@ createFragment config baseDir opts = do
   let outDir = baseDir </> changesDir
       outPath = outDir </> filename
 
-  createDirectoryIfMissing True outDir
-  Yaml.encodeFile outPath frag
+  liftIO $ createDirectoryIfMissing True outDir
+  liftIO $ Yaml.encodeFile outPath frag
   pure outPath
 
 -- | Interactive mode: prompt the user for all fragment fields.
 -- Returns one 'NewOptions' per selected project.
-interactiveNew :: Config -> IO [NewOptions]
+interactiveNew :: MonadIO m => Config -> m [NewOptions]
 interactiveNew config = do
   let projectNames = sort . Map.keys $ configProjects config
       kindPairs = Map.toAscList $ configKinds config
-      formatKind (name, kd) = case kindDescription kd of
-        Just desc -> T.unpack name <> " - " <> T.unpack desc
-        Nothing -> T.unpack name
+      formatKind (name, kd) = maybe (T.unpack name) (\desc -> T.unpack name <> " - " <> T.unpack desc) $ kindDescription kd
 
   projects <- promptMultiSelect "project" projectNames T.unpack
-  TIO.hPutStrLn stdout $ "  Selected: " <> T.intercalate ", " projects
+  liftIO . TIO.hPutStrLn stdout $ "  Selected: " <> T.intercalate ", " projects
 
   kinds <- map fst <$> promptMultiSelect "kind" kindPairs formatKind
-  TIO.hPutStrLn stdout $ "  Selected: " <> T.intercalate ", " kinds
+  liftIO . TIO.hPutStrLn stdout $ "  Selected: " <> T.intercalate ", " kinds
 
   description <- promptMultiLine "Description"
   prNumber <- promptInt "PR number"
@@ -95,9 +93,9 @@ interactiveNew config = do
 
 -- | Generate a scriv-style filename: @{timestamp}_{project}_{user}_{branch}.yml@.
 -- Empty components are dropped so the name stays clean.
-generateFilename :: Text -> IO FilePath
+generateFilename :: MonadIO m => Text -> m FilePath
 generateFilename project = do
-  now <- getCurrentTime
+  now <- liftIO getCurrentTime
   let timestamp = formatTime defaultTimeLocale "%Y%m%d_%H%M%S" now
       projectSlug = sanitise $ T.unpack project
   nick <- userNick

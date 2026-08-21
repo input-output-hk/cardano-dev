@@ -16,28 +16,29 @@ import Herald.Types (throwHerald)
 
 -- | Read a PVP version from a plain text file.
 -- Missing or empty files are treated as 0.0.0.0 with a warning to stderr.
-readVersionFile :: FilePath -> IO Pvp
+readVersionFile :: MonadIO m => FilePath -> m Pvp
 readVersionFile path = do
-  mContent <- runMaybeT $ do
+  mContent <- runMaybeT probe
+  when (isNothing mContent) $ warnDefault path
+  mVersion <- forM mContent $ parseVersionContent path
+  pure $ fromMaybe defaultVersion mVersion
+ where
+  probe = do
     guard =<< liftIO (doesFileExist path)
     raw <- liftIO $ TIO.readFile path
     let stripped = T.strip . stripBom $ raw
     guard . not $ T.null stripped
     pure stripped
-  case mContent of
-    Nothing -> do
-      warnDefault path
-      pure defaultVersion
-    Just content -> parseVersionContent path content
 
-warnDefault :: FilePath -> IO ()
+warnDefault :: MonadIO m => FilePath -> m ()
 warnDefault path =
-  TIO.hPutStrLn stderr
+  liftIO
+    . TIO.hPutStrLn stderr
     $ "Warning: version file missing or empty: "
     <> T.pack path
     <> "; defaulting to 0.0.0.0"
 
-parseVersionContent :: FilePath -> Text -> IO Pvp
+parseVersionContent :: MonadIO m => FilePath -> Text -> m Pvp
 parseVersionContent path content = do
   let lines_ = filter (not . T.null) . map T.strip $ T.lines content
   case lines_ of
@@ -51,7 +52,7 @@ parseVersionContent path content = do
       throwHerald $ "Version file must contain exactly one line: " <> path
 
 -- | Write a PVP version to a plain text file (version + newline, nothing else).
-writeVersionFile :: FilePath -> Pvp -> IO ()
+writeVersionFile :: MonadIO m => FilePath -> Pvp -> m ()
 writeVersionFile path version =
   writeFileBinary path . encodeUtf8 . T.pack $ showPvp version <> "\n"
 
