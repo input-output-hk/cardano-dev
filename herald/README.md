@@ -372,6 +372,7 @@ Commands:
 | Flag | Default | Description |
 |------|---------|-------------|
 | `-c`, `--config FILE` | `.herald.yml` | Path to herald config file |
+| `--version` | | Print herald's own version and exit |
 
 ### `herald init`
 
