@@ -32,8 +32,11 @@ import Herald.Types (throwHerald)
 --
 -- In a terminal: j\/k or arrows to move, space to toggle, enter to confirm.
 -- Non-terminal: falls back to comma-separated number input.
-promptMultiSelect :: String -> [a] -> (a -> String) -> IO [a]
-promptMultiSelect label items formatItem = do
+-- Kept as one concrete-'IO' block ('liftIO'-wrapped only at the boundary):
+-- the menu loop uses 'finally' for terminal-mode cleanup, which needs
+-- 'MonadMask' rather than plain 'MonadIO' to generalise.
+promptMultiSelect :: MonadIO m => String -> [a] -> (a -> String) -> m [a]
+promptMultiSelect label items formatItem = liftIO $ do
   when (null items)
     $ throwHerald
     $ "No "
@@ -101,8 +104,11 @@ promptMultiSelect label items formatItem = do
 -- When @$VISUAL@ or @$EDITOR@ is set, opens the editor for full multi-line
 -- editing (arrow keys, undo, etc.).  Otherwise falls back to haskeline
 -- line-by-line input (empty line finishes).
-promptMultiLine :: String -> IO Text
-promptMultiLine label = go
+-- Kept as one concrete-'IO' block ('liftIO'-wrapped only at the boundary):
+-- 'editorInput' uses 'finally' for temp-file cleanup and 'haskelineInput'
+-- drives 'runInputT', both of which need 'MonadMask' to generalise.
+promptMultiLine :: MonadIO m => String -> m Text
+promptMultiLine label = liftIO go
  where
   go = do
     isTerm <- IO.hIsTerminalDevice IO.stdout
@@ -161,15 +167,17 @@ promptMultiLine label = go
 
 -- | Prompt for a positive integer.
 -- Uses haskeline for line editing when in a terminal.
-promptInt :: String -> IO Int
-promptInt label = go
+-- Kept as one concrete-'IO' block ('liftIO'-wrapped only at the boundary):
+-- 'runInputT' needs 'MonadMask' to generalise.
+promptInt :: MonadIO m => String -> m Int
+promptInt label = liftIO go
  where
   go = do
     isTerm <- IO.hIsTerminalDevice IO.stdout
     putPrompt isTerm $ label <> ":"
     input <-
       if isTerm
-        then runInputT defaultSettings (getInputLine "> ") >>= maybe (pure "") pure
+        then fromMaybe "" <$> runInputT defaultSettings (getInputLine "> ")
         else do
           IO.putStr $ colorise isTerm "36" "> "
           IO.hFlush IO.stdout

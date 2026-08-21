@@ -9,7 +9,7 @@ import Data.Text qualified as T
 
 -- | Prepend a changelog section before the first existing ## header.
 -- If no ## header exists, appends the section at the end.
-prependSection :: FilePath -> Text -> IO ()
+prependSection :: MonadIO m => FilePath -> Text -> m ()
 prependSection path section = do
   content <- readFileUtf8 path
   let ls = map (T.filter (/= '\r')) $ T.lines content

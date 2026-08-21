@@ -15,7 +15,7 @@ where
 
 import RIO
 
-import Control.Monad.Trans.Maybe (MaybeT (..), runMaybeT)
+import Control.Monad.Trans.Maybe (MaybeT, hoistMaybe)
 import Data.Text qualified as T
 import System.Directory (doesDirectoryExist, doesFileExist, makeAbsolute)
 import System.FilePath (isAbsolute, takeDirectory, (</>))
@@ -31,8 +31,8 @@ newtype GitRepo = GitRepo {gitDir :: FilePath}
 -- | Discover the git directory starting from @startDir@, walking up parents.
 -- Handles both regular repos (@.git/@ directory) and worktrees\/submodules
 -- (@.git@ file containing @gitdir: path@).
-openRepo :: FilePath -> IO (Maybe GitRepo)
-openRepo startDir = makeAbsolute startDir >>= runMaybeT . walk
+openRepo :: MonadIO m => FilePath -> MaybeT m GitRepo
+openRepo startDir = liftIO (makeAbsolute startDir) >>= walk
  where
   walk dir =
     let gitPath = dir </> ".git"
@@ -44,13 +44,13 @@ openRepo startDir = makeAbsolute startDir >>= runMaybeT . walk
     walk parent
 
   tryDirectory gitPath = do
-    guard =<< lift (doesDirectoryExist gitPath)
+    guard =<< liftIO (doesDirectoryExist gitPath)
     pure $ GitRepo gitPath
 
   tryGitFile gitPath baseDir = do
-    guard =<< lift (doesFileExist gitPath)
-    content <- lift $ readFileUtf8 gitPath
-    target <- MaybeT . pure . T.stripPrefix "gitdir:" $ T.strip content
+    guard =<< liftIO (doesFileExist gitPath)
+    content <- readFileUtf8 gitPath
+    target <- hoistMaybe . T.stripPrefix "gitdir:" $ T.strip content
     let targetPath = T.unpack $ T.strip target
     pure
       . GitRepo
@@ -64,14 +64,13 @@ openRepo startDir = makeAbsolute startDir >>= runMaybeT . walk
 
 -- | Read the current branch name from @HEAD@.
 -- Returns 'Nothing' on detached HEAD or missing file.
-readBranch :: GitRepo -> IO (Maybe String)
-readBranch (GitRepo gd) = runMaybeT $ do
+readBranch :: MonadIO m => GitRepo -> MaybeT m String
+readBranch (GitRepo gd) = do
   let headFile = gd </> "HEAD"
-  guard =<< lift (doesFileExist headFile)
-  content <- lift $ readFileUtf8 headFile
+  guard =<< liftIO (doesFileExist headFile)
+  content <- readFileUtf8 headFile
   fmap T.unpack
-    . MaybeT
-    . pure
+    . hoistMaybe
     $ T.stripPrefix "ref: refs/heads/"
     $ T.strip content
 
@@ -85,12 +84,12 @@ readBranch (GitRepo gd) = runMaybeT $ do
 --
 --   * @\"section.variable\"@   -- looks for @[section]@ then @variable@
 --   * @\"section.sub.variable\"@ -- looks for @[section \"sub\"]@ then @variable@
-readConfigValue :: GitRepo -> String -> IO (Maybe String)
-readConfigValue (GitRepo gd) key = runMaybeT $ do
+readConfigValue :: MonadIO m => GitRepo -> String -> MaybeT m String
+readConfigValue (GitRepo gd) key = do
   let configFile = gd </> "config"
-  guard =<< lift (doesFileExist configFile)
-  content <- lift $ readFileUtf8 configFile
-  fmap T.unpack . MaybeT . pure $ lookupGitConfig (T.pack key) content
+  guard =<< liftIO (doesFileExist configFile)
+  content <- readFileUtf8 configFile
+  fmap T.unpack . hoistMaybe $ lookupGitConfig (T.pack key) content
 
 -- | Pure lookup in git-config text.  Exported for testing.
 lookupGitConfig :: Text -> Text -> Maybe Text

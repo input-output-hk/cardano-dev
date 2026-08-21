@@ -1,6 +1,7 @@
 module Test.Herald.E2E.Next (tests) where
 
 import Control.Exception (catch)
+import Control.Monad.Trans.Maybe (runMaybeT)
 import Data.Map.Strict qualified as Map
 import Data.Yaml qualified as Yaml
 import System.Directory (createDirectoryIfMissing)
@@ -44,7 +45,7 @@ prop_next_no_fragments = H.propertyOnce $ do
       (pkgDir </> "cardano-api.cabal")
       "cabal-version: 3.0\nname: cardano-api\nversion: 8.4.1.2\n"
     -- No fragment files
-    nextVersion testConfigMultiProject tmpDir "cardano-api"
+    runMaybeT $ nextVersion testConfigMultiProject tmpDir "cardano-api"
 
   result === Nothing
 
@@ -76,7 +77,7 @@ prop_next_no_cabal = H.propertyOnce $ do
         , fragmentDescription = "Fix"
         , fragmentPR = 42
         }
-    nextVersion noCabalConfig tmpDir "cardano-api"
+    runMaybeT $ nextVersion noCabalConfig tmpDir "cardano-api"
 
   result === Nothing
 
@@ -99,7 +100,7 @@ prop_next_computes_version = H.propertyOnce $ do
         , fragmentDescription = "Breaking change"
         , fragmentPR = 42
         }
-    nextVersion testConfigMultiProject tmpDir "cardano-api"
+    runMaybeT $ nextVersion testConfigMultiProject tmpDir "cardano-api"
 
   result === Just (pvp 8 5 0 0)
 
@@ -123,7 +124,7 @@ prop_next_invalid_fragment = H.propertyOnce $ do
         , fragmentDescription = "This should fail"
         , fragmentPR = 999
         }
-    (nextVersion testConfigMultiProject tmpDir "cardano-api" >> pure False)
+    (runMaybeT (nextVersion testConfigMultiProject tmpDir "cardano-api") >> pure False)
       `catch` \(HeraldException _) -> pure True
 
   H.assertWith caught id
@@ -133,7 +134,7 @@ prop_next_unknown_project :: Property
 prop_next_unknown_project = H.propertyOnce $ do
   caught <- H.evalIO $ withSystemTempDirectory "herald-next" $ \tmpDir -> do
     createDirectoryIfMissing True $ tmpDir </> ".changes"
-    (nextVersion testConfigMultiProject tmpDir "nonexistent-project" >> pure False)
+    (runMaybeT (nextVersion testConfigMultiProject tmpDir "nonexistent-project") >> pure False)
       `catch` \(HeraldException _) -> pure True
 
   H.assertWith caught id
@@ -166,7 +167,7 @@ prop_next_multiple_kinds = H.propertyOnce $ do
         , fragmentDescription = "New feature"
         , fragmentPR = 99
         }
-    nextVersion testConfigMultiProject tmpDir "cardano-api"
+    runMaybeT $ nextVersion testConfigMultiProject tmpDir "cardano-api"
 
   -- Feature bump (0.0.1.0) > bugfix (0.0.0.1), so 8.4.1.2 -> 8.4.2.0
   result === Just (pvp 8 4 2 0)
@@ -175,7 +176,7 @@ prop_next_multiple_kinds = H.propertyOnce $ do
 prop_next_version_file :: Property
 prop_next_version_file = H.propertyOnce $ do
   result <- H.evalIO $ setupVersionFileRepo $ \tmpDir ->
-    nextVersion testConfigVersionFile tmpDir "my-action"
+    runMaybeT $ nextVersion testConfigVersionFile tmpDir "my-action"
   -- feature bump on 1.0.0.0 -> 1.0.1.0
   result === Just (pvp 1 0 1 0)
 
@@ -196,6 +197,6 @@ prop_next_version_file_missing = H.propertyOnce $ do
         , fragmentDescription = "Add caching"
         , fragmentPR = 10
         }
-    nextVersion testConfigVersionFile tmpDir "my-action"
+    runMaybeT $ nextVersion testConfigVersionFile tmpDir "my-action"
   -- feature bump on 0.0.0.0 -> 0.0.1.0
   result === Just (pvp 0 0 1 0)

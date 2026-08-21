@@ -1,5 +1,6 @@
 module Test.Herald.Cabal (tests) where
 
+import Control.Monad.Trans.Maybe (runMaybeT)
 import Data.ByteString qualified as BS
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -98,7 +99,7 @@ prop_read_no_version = H.propertyOnce $ do
   result <- H.evalIO $ withSystemTempDirectory "herald-test" $ \tmpDir -> do
     let cabalFile = tmpDir </> "test.cabal"
     writeFile cabalFile $ unlines ["cabal-version: 3.0", "name: test-pkg", "synopsis: No version"]
-    readCabalVersion cabalFile
+    runMaybeT $ readCabalVersion cabalFile
   result === Nothing
 
 -- | Extracts the version from a standard .cabal file.
@@ -107,7 +108,7 @@ prop_read_version = H.propertyOnce $ do
   result <- H.evalIO $ withSystemTempDirectory "herald-test" $ \tmpDir -> do
     let cabalFile = tmpDir </> "test.cabal"
     writeFile cabalFile sampleCabal
-    readCabalVersion cabalFile
+    runMaybeT $ readCabalVersion cabalFile
   result === Just (pvp 8 4 1 2)
 
 -- | Extra whitespace around the version value is tolerated.
@@ -116,7 +117,7 @@ prop_read_version_spaces = H.propertyOnce $ do
   result <- H.evalIO $ withSystemTempDirectory "herald-test" $ \tmpDir -> do
     let cabalFile = tmpDir </> "test.cabal"
     writeFile cabalFile sampleCabalSpaces
-    readCabalVersion cabalFile
+    runMaybeT $ readCabalVersion cabalFile
   result === Just (pvp 8 4 1 2)
 
 -- | Writing a new version updates the version: line but preserves all other content.
@@ -140,7 +141,7 @@ prop_write_read_roundtrip = H.propertyOnce $ do
     let cabalFile = tmpDir </> "test.cabal"
     writeFile cabalFile sampleCabal
     writeCabalVersion cabalFile (pvp 9 0 0 0)
-    readCabalVersion cabalFile
+    runMaybeT $ readCabalVersion cabalFile
   result === Just (pvp 9 0 0 0)
  where
   -- withSystemTmpDirectory is just an alias for clarity in this context

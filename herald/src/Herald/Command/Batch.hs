@@ -14,6 +14,8 @@ where
 
 import RIO
 
+import Control.Applicative (empty)
+import Control.Monad.Trans.Maybe (MaybeT, hoistMaybe, runMaybeT)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
@@ -90,20 +92,24 @@ data DryRunResult = DryRunResult
 
 -- | Batch changelog fragments for a package: compute version, render section,
 -- prepend to CHANGELOG.md, update .cabal version, and remove processed fragments.
--- Returns 'Nothing' (with a warning) when no fragments exist for the package.
--- 'UnspecifiedVersion' is a hard error: batch never guesses a release version
--- silently, the caller must choose 'ExplicitVersion' or 'AutoVersion'.
-batchPackage :: Config -> FilePath -> Text -> VersionChoice -> Day -> IO (Maybe BatchResult)
-batchPackage config baseDir package versionChoice day =
-  traverse (applyPlan baseDir) =<< planBatch config baseDir package versionChoice day
+-- Fails (short-circuits, having already warned to stderr) when no fragments
+-- exist for the package. 'UnspecifiedVersion' is a hard error: batch never
+-- guesses a release version silently, the caller must choose 'ExplicitVersion'
+-- or 'AutoVersion'.
+batchPackage
+  :: MonadIO m => Config -> FilePath -> Text -> VersionChoice -> Day -> MaybeT m BatchResult
+batchPackage config baseDir package versionChoice day = do
+  plan <- planBatch config baseDir package versionChoice day
+  lift $ applyPlan baseDir plan
 
 -- | Like 'batchPackage', but performs no mutation: no changelog write, no
 -- version-source write, no fragment deletion. Unlike 'batchPackage',
 -- 'UnspecifiedVersion' is not an error here -- it defaults to
 -- auto-computation, since nothing is written.
-dryRunBatch :: Config -> FilePath -> Text -> VersionChoice -> Day -> IO (Maybe DryRunResult)
+dryRunBatch
+  :: MonadIO m => Config -> FilePath -> Text -> VersionChoice -> Day -> MaybeT m DryRunResult
 dryRunBatch config baseDir package versionChoice day =
-  fmap (toDryRunResult config baseDir)
+  toDryRunResult config baseDir
     <$> planBatch config baseDir package (defaultToAuto versionChoice) day
  where
   defaultToAuto UnspecifiedVersion = AutoVersion
@@ -119,7 +125,7 @@ computeMaxBump config frags =
         b : bs -> foldl' max b bs
 
 -- | Stage batch changes, commit, and optionally tag.
-commitBatchResult :: FilePath -> BatchResult -> CommitMode -> IO ()
+commitBatchResult :: MonadIO m => FilePath -> BatchResult -> CommitMode -> m ()
 commitBatchResult _ _ NoCommit = pure ()
 commitBatchResult baseDir result mode = do
   let filesToStage =
@@ -153,8 +159,9 @@ data BatchPlan = BatchPlan
 
 -- | Validate fragments, resolve the release version, and render the
 -- changelog section, without writing or deleting anything.
--- Returns 'Nothing' (with a warning) when no fragments exist for the package.
-planBatch :: Config -> FilePath -> Text -> VersionChoice -> Day -> IO (Maybe BatchPlan)
+-- Fails (short-circuits), having already warned to stderr, when no fragments
+-- exist for the package.
+planBatch :: MonadIO m => Config -> FilePath -> Text -> VersionChoice -> Day -> MaybeT m BatchPlan
 planBatch config baseDir package versionChoice day = do
   projectConfig <-
     maybe (throwHerald $ "Unknown project: " <> T.unpack package) pure
@@ -163,52 +170,54 @@ planBatch config baseDir package versionChoice day = do
 
   packagePairs <- readProjectFragments config baseDir package
 
-  if null packagePairs
-    then do
-      TIO.hPutStrLn stderr
-        $ "Warning: no changelog fragments found for "
-        <> package
-        <> "; nothing to do"
-      pure Nothing
-    else do
-      -- Validate fragments before resolving the version or modifying anything
-      let errors =
-            concatMap
-              (\(file, frag) -> map (\e -> T.pack file <> ": " <> e) $ validateFragment config frag)
-              packagePairs
-      unless (null errors)
-        . throwHerald
-        . T.unpack
-        $ T.intercalate "\n" errors
+  when (null packagePairs)
+    $ liftIO
+      ( TIO.hPutStrLn stderr
+          $ "Warning: no changelog fragments found for "
+          <> package
+          <> "; nothing to do"
+      )
+    >> empty
 
-      let packageFragments = map snd packagePairs
+  -- Validate fragments before resolving the version or modifying anything
+  let errors =
+        concatMap
+          (\(file, frag) -> map (\e -> T.pack file <> ": " <> e) $ validateFragment config frag)
+          packagePairs
+  unless (null errors)
+    . throwHerald
+    . T.unpack
+    $ T.intercalate "\n" errors
 
-      -- Read version once for both version resolution and the downgrade check
-      currentVersion <- readCurrentVersion baseDir projectConfig
+  let packageFragments = map snd packagePairs
 
-      version <- resolveVersion currentVersion packageFragments
+  -- Read version once for both version resolution and the downgrade check.
+  -- It's inspected as data below rather than used to short-circuit, so
+  -- readCurrentVersion's own MaybeT is unwrapped back to a plain Maybe here.
+  currentVersion <- lift . runMaybeT $ readCurrentVersion baseDir projectConfig
 
-      -- Reject an explicit version that would be a downgrade
-      forM_ currentVersion $ \cv ->
-        when (version < cv)
-          . throwHerald
-          $ "Version "
-          <> showPvp version
-          <> " is lower than current "
-          <> showPvp cv
+  version <- resolveVersion currentVersion packageFragments
 
-      let section = renderSection config version day packageFragments
+  -- Reject an explicit version that would be a downgrade
+  forM_ currentVersion $ \cv ->
+    when (version < cv)
+      . throwHerald
+      $ "Version "
+      <> showPvp version
+      <> " is lower than current "
+      <> showPvp cv
 
-      pure
-        . Just
-        $ BatchPlan
-          { planPackage = package
-          , planProjectConfig = projectConfig
-          , planFragmentPairs = packagePairs
-          , planCurrentVersion = currentVersion
-          , planVersion = version
-          , planSection = section
-          }
+  let section = renderSection config version day packageFragments
+
+  pure
+    $ BatchPlan
+      { planPackage = package
+      , planProjectConfig = projectConfig
+      , planFragmentPairs = packagePairs
+      , planCurrentVersion = currentVersion
+      , planVersion = version
+      , planSection = section
+      }
  where
   resolveVersion currentVersion packageFragments = case versionChoice of
     ExplicitVersion v -> pure v
@@ -238,12 +247,12 @@ versionRequiredMessage mPreview =
 
 -- | Apply a plan's changes: prepend the changelog section, write the
 -- version, and remove the consumed fragment files.
-applyPlan :: FilePath -> BatchPlan -> IO BatchResult
+applyPlan :: MonadIO m => FilePath -> BatchPlan -> m BatchResult
 applyPlan baseDir plan = do
   let projectConfig = planProjectConfig plan
   prependSection (baseDir </> projectChangelog projectConfig) (planSection plan)
   writeVersion baseDir projectConfig (planVersion plan)
-  forM_ (planFragmentPairs plan) $ \(file, _) -> removeFile $ baseDir </> file
+  liftIO $ forM_ (planFragmentPairs plan) $ \(file, _) -> removeFile $ baseDir </> file
   pure
     BatchResult
       { batchResultVersion = planVersion plan
@@ -274,18 +283,21 @@ toDryRunResult config baseDir plan =
       }
 
 -- | Read the current version from whichever source is configured.
-readCurrentVersion :: FilePath -> ProjectConfig -> IO (Maybe Pvp)
-readCurrentVersion baseDir projectConfig = case projectVersionSource projectConfig of
-  Just (CabalFile cabalFile) -> readCabalVersion $ baseDir </> cabalFile
-  Just (VersionFile versionFile) -> Just <$> readVersionFile (baseDir </> versionFile)
-  Nothing -> pure Nothing
+-- Fails when no version source is configured for the project.
+readCurrentVersion :: MonadIO m => FilePath -> ProjectConfig -> MaybeT m Pvp
+readCurrentVersion baseDir projectConfig = do
+  source <- hoistMaybe $ projectVersionSource projectConfig
+  case source of
+    CabalFile cabalFile -> readCabalVersion $ baseDir </> cabalFile
+    VersionFile versionFile -> lift $ readVersionFile (baseDir </> versionFile)
 
 -- | Write the version to whichever source is configured.
-writeVersion :: FilePath -> ProjectConfig -> Pvp -> IO ()
-writeVersion baseDir projectConfig version = case projectVersionSource projectConfig of
-  Just (CabalFile cabalFile) -> writeCabalVersion (baseDir </> cabalFile) version
-  Just (VersionFile versionFile) -> writeVersionFile (baseDir </> versionFile) version
-  Nothing -> pure ()
+writeVersion :: MonadIO m => FilePath -> ProjectConfig -> Pvp -> m ()
+writeVersion baseDir projectConfig version =
+  maybe (pure ()) writeSource $ projectVersionSource projectConfig
+ where
+  writeSource (CabalFile cabalFile) = writeCabalVersion (baseDir </> cabalFile) version
+  writeSource (VersionFile versionFile) = writeVersionFile (baseDir </> versionFile) version
 
 -- | Absolute path to the version file (cabal or plain text), if configured.
 versionFilePath :: FilePath -> ProjectConfig -> Maybe FilePath

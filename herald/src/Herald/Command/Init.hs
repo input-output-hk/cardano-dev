@@ -6,7 +6,7 @@ where
 import RIO
 
 import Control.Applicative (empty)
-import Control.Monad.Trans.Maybe (MaybeT (..), runMaybeT)
+import Control.Monad.Trans.Maybe (MaybeT, runMaybeT)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory)
@@ -24,21 +24,21 @@ import Herald.Types
   )
 
 -- | Write text to a file with explicit UTF-8 encoding, avoiding locale issues.
-writeUtf8 :: FilePath -> Text -> IO ()
+writeUtf8 :: MonadIO m => FilePath -> Text -> m ()
 writeUtf8 path = writeFileBinary path . encodeUtf8
 
 -- | Generate a default herald config file by scanning the repository.
 -- Discovers top-level directories (and root) as projects, then writes a commented YAML config.
-initConfig :: FilePath -> FilePath -> IO FilePath
+initConfig :: MonadIO m => FilePath -> FilePath -> m FilePath
 initConfig baseDir configPath = do
-  exists <- doesFileExist configPath
+  exists <- liftIO $ doesFileExist configPath
   when exists
     . throwHerald
     $ configPath
     <> " already exists; refusing to overwrite"
 
   gitRepo <-
-    detectGitRepo baseDir
+    runMaybeT (detectGitRepo baseDir)
       >>= maybe (throwHerald "Could not detect origin remote; set git-repo manually in .herald.yml") pure
   projects <- discoverProjects baseDir
 
@@ -55,7 +55,7 @@ initConfig baseDir configPath = do
   -- Create the changes directory with a template fragment
   let changesDir = baseDir </> fromMaybe ".changes" (configChangesDir config)
       templatePath = changesDir </> "_TEMPLATE.yml"
-  createDirectoryIfMissing True changesDir
+  liftIO $ createDirectoryIfMissing True changesDir
   writeUtf8 templatePath renderTemplate
 
   pure configPath
@@ -111,14 +111,14 @@ renderKinds = concatMap renderKind . Map.toAscList
 renderProjects :: Map Text ProjectConfig -> [Text]
 renderProjects = concatMap renderProject . Map.toAscList
  where
+  renderVersionSource (CabalFile cabalFile) = ["    cabal-file: " <> T.pack cabalFile]
+  renderVersionSource (VersionFile versionFile) = ["    version-file: " <> T.pack versionFile]
+
   renderProject (name, projectConfig) =
     [ "  " <> name <> ":"
     , "    changelog: " <> T.pack (projectChangelog projectConfig)
     ]
-      <> case projectVersionSource projectConfig of
-        Just (CabalFile cabalFile) -> ["    cabal-file: " <> T.pack cabalFile]
-        Just (VersionFile versionFile) -> ["    version-file: " <> T.pack versionFile]
-        Nothing -> []
+      <> maybe [] renderVersionSource (projectVersionSource projectConfig)
 
 -- | Render a template changelog fragment with example values.
 renderTemplate :: Text
@@ -145,22 +145,22 @@ renderTemplate =
 -- | Scan the base directory for projects.
 -- Checks the root directory first (single-project repo), then all top-level subdirectories.
 -- Hidden directories (starting with @.@) are excluded.
-discoverProjects :: FilePath -> IO (Map Text ProjectConfig)
-discoverProjects baseDir = do
-  rootProject <- probeRootProject baseDir
-  maybe discoverSubProjects (pure . Map.fromList . pure) rootProject
+discoverProjects :: MonadIO m => FilePath -> m (Map Text ProjectConfig)
+discoverProjects baseDir =
+  fromMaybe mempty
+    <$> runMaybeT (Map.fromList . pure <$> probeRootProject baseDir <|> lift discoverSubProjects)
  where
   discoverSubProjects = do
-    entries <- filter (not . isHidden) <$> listDirectory baseDir
-    subProjects <- catMaybes <$> traverse (probeSubProject baseDir) entries
+    entries <- filter (not . isHidden) <$> liftIO (listDirectory baseDir)
+    subProjects <- catMaybes <$> traverse (runMaybeT . probeSubProject baseDir) entries
     pure $ Map.fromList subProjects
   isHidden ('.' : _) = True
   isHidden _ = False
 
 -- | Check if the root directory itself is a single project (has exactly one .cabal file).
-probeRootProject :: FilePath -> IO (Maybe (Text, ProjectConfig))
-probeRootProject baseDir = runMaybeT $ do
-  cf <- MaybeT $ findSingleCabalFile baseDir
+probeRootProject :: MonadIO m => FilePath -> MaybeT m (Text, ProjectConfig)
+probeRootProject baseDir = do
+  cf <- findSingleCabalFile baseDir
   let name = T.pack $ dropExtension cf
   guard $ not $ T.null name
   pure
@@ -174,15 +174,17 @@ probeRootProject baseDir = runMaybeT $ do
 
 -- | Probe a subdirectory as a project.
 -- All non-hidden directories are treated as projects. A .cabal file is detected if present.
-probeSubProject :: FilePath -> FilePath -> IO (Maybe (Text, ProjectConfig))
-probeSubProject baseDir entry = runMaybeT $ do
+probeSubProject :: MonadIO m => FilePath -> FilePath -> MaybeT m (Text, ProjectConfig)
+probeSubProject baseDir entry = do
   guard =<< liftIO (doesDirectoryExist $ baseDir </> entry)
-  cabalFile <- liftIO . findSingleCabalFile $ baseDir </> entry
+  cabalFile <- lift . runMaybeT . findSingleCabalFile $ baseDir </> entry
   let name = maybe (T.pack entry) (T.pack . dropExtension) cabalFile
   guard . not $ T.null name
-  let versionSource = case cabalFile of
-        Just cf -> Just . CabalFile $ entry </> cf
-        Nothing -> Just . VersionFile $ entry </> "version.txt"
+  let versionSource =
+        maybe
+          (Just . VersionFile $ entry </> "version.txt")
+          (\cf -> Just . CabalFile $ entry </> cf)
+          cabalFile
   pure
     ( name
     , ProjectConfig
@@ -193,8 +195,8 @@ probeSubProject baseDir entry = runMaybeT $ do
     )
 
 -- | Find exactly one @.cabal@ file in a directory. Returns 'Nothing' if zero or multiple.
-findSingleCabalFile :: FilePath -> IO (Maybe FilePath)
-findSingleCabalFile dir = runMaybeT $ do
+findSingleCabalFile :: MonadIO m => FilePath -> MaybeT m FilePath
+findSingleCabalFile dir = do
   guard =<< liftIO (doesDirectoryExist dir)
   files <- filter ((== ".cabal") . takeExtension) <$> liftIO (listDirectory dir)
   case files of

@@ -21,7 +21,8 @@ where
 
 import RIO
 
-import Control.Monad.Trans.Maybe (MaybeT (..), runMaybeT)
+import Control.Applicative (empty)
+import Control.Monad.Trans.Maybe (MaybeT (..), hoistMaybe, runMaybeT)
 import Data.Char (isAlphaNum, isSpace)
 import Data.Text qualified as T
 import System.Directory (doesFileExist)
@@ -40,11 +41,11 @@ import Herald.Types (throwHerald)
 -- Returns the part after the last @\/@, with non-alphanumeric chars replaced
 -- by @_@.  Returns empty string if not in a git repo, on a detached HEAD,
 -- or on a well-known default branch.
-currentBranch :: IO String
+currentBranch :: MonadIO m => m String
 currentBranch = do
   result <- runMaybeT $ do
-    repo <- MaybeT $ openRepo "."
-    name <- MaybeT $ readBranch repo
+    repo <- openRepo "."
+    name <- readBranch repo
     let short = lastSegment '/' name
     guard $ short `notElem` ["main", "master", "develop", "HEAD"]
     pure $ sanitise short
@@ -63,19 +64,19 @@ currentBranch = do
 
 -- | Get a user nick for fragment filenames.
 -- Tries (in order): @scriv.user-nick@, @github.user@, email local-part, @$USER@.
-userNick :: IO String
+userNick :: MonadIO m => m String
 userNick = do
-  repo <- openRepo "."
+  repo <- runMaybeT $ openRepo "."
   result <-
     runMaybeT
       $ MaybeT (configGet repo "scriv.user-nick")
       <|> MaybeT (configGet repo "github.user")
       <|> MaybeT (fmap (takeWhile (/= '@')) <$> configGet repo "user.email")
-      <|> MaybeT (lookupEnv "USER")
+      <|> MaybeT (liftIO $ lookupEnv "USER")
   pure $ fromMaybe "somebody" result
  where
   configGet Nothing _ = pure Nothing
-  configGet (Just r) key = readConfigValue r key
+  configGet (Just r) key = runMaybeT $ readConfigValue r key
 
 -------------------------------------------------------------------------------
 -- Git repo detection
@@ -83,11 +84,11 @@ userNick = do
 
 -- | Try to extract the owner\/repo slug from the origin remote URL.
 -- Returns 'Nothing' when detection fails (no origin remote, unrecognised URL format).
-detectGitRepo :: FilePath -> IO (Maybe Text)
-detectGitRepo baseDir = runMaybeT $ do
-  repo <- MaybeT $ openRepo baseDir
-  url <- T.pack <$> MaybeT (readConfigValue repo "remote.origin.url")
-  MaybeT . pure $ parseRepoSlug url
+detectGitRepo :: MonadIO m => FilePath -> MaybeT m Text
+detectGitRepo baseDir = do
+  repo <- openRepo baseDir
+  url <- T.pack <$> readConfigValue repo "remote.origin.url"
+  hoistMaybe $ parseRepoSlug url
 
 -- | Parse a git remote URL (SSH or HTTPS) into a full HTTPS base URL
 -- suitable for constructing PR links (e.g. @https:\/\/github.com\/owner\/repo@).
@@ -153,40 +154,40 @@ normaliseGitRepo t =
 
 -- | Read the default remote branch name from @refs\/remotes\/origin\/HEAD@.
 -- Falls back to @git symbolic-ref@ if the file doesn't exist.
-defaultRemoteBranch :: FilePath -> IO (Maybe String)
-defaultRemoteBranch baseDir = runMaybeT $ tryFilesystem <|> tryGitCommand
+defaultRemoteBranch :: MonadIO m => FilePath -> MaybeT m String
+defaultRemoteBranch baseDir = tryFilesystem <|> tryGitCommand
  where
   tryFilesystem = do
-    repo <- MaybeT $ openRepo baseDir
+    repo <- openRepo baseDir
     let headRef = gitDir repo </> "refs" </> "remotes" </> "origin" </> "HEAD"
     guard =<< liftIO (doesFileExist headRef)
-    content <- liftIO $ readFileUtf8 headRef
+    content <- readFileUtf8 headRef
     fmap T.unpack
-      . MaybeT
-      . pure
+      . hoistMaybe
       . T.stripPrefix "ref: refs/remotes/origin/"
       $ T.strip content
 
   tryGitCommand =
-    MaybeT $ gitCommandIn baseDir ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]
+    gitCommandIn baseDir ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]
 
 -- | Find the fork point: the merge-base between HEAD and the default remote branch.
 -- Returns the commit hash of the common ancestor.
-findForkPoint :: FilePath -> IO (Maybe String)
-findForkPoint baseDir = runMaybeT $ do
-  branch <- MaybeT $ defaultRemoteBranch baseDir
-  MaybeT $ gitCommandIn baseDir ["merge-base", "HEAD", "origin/" <> branch]
+findForkPoint :: MonadIO m => FilePath -> MaybeT m String
+findForkPoint baseDir = do
+  branch <- defaultRemoteBranch baseDir
+  gitCommandIn baseDir ["merge-base", "HEAD", "origin/" <> branch]
 
 -- | List files changed between a commit and HEAD.
-changedFiles :: FilePath -> String -> IO [FilePath]
+changedFiles :: MonadIO m => FilePath -> String -> m [FilePath]
 changedFiles baseDir base = do
-  result <- gitCommandIn baseDir ["diff", "--name-only", base <> "..HEAD"]
+  result <- runMaybeT $ gitCommandIn baseDir ["diff", "--name-only", base <> "..HEAD"]
   pure . maybe [] (filter (not . null) . lines) $ result
 
 -- | List files *added* (not modified) between a commit and HEAD.
-addedFiles :: FilePath -> String -> IO [FilePath]
+addedFiles :: MonadIO m => FilePath -> String -> m [FilePath]
 addedFiles baseDir base = do
-  result <- gitCommandIn baseDir ["diff", "--diff-filter=A", "--name-only", base <> "..HEAD"]
+  result <-
+    runMaybeT $ gitCommandIn baseDir ["diff", "--diff-filter=A", "--name-only", base <> "..HEAD"]
   pure . maybe [] (filter (not . null) . lines) $ result
 
 -------------------------------------------------------------------------------
@@ -194,34 +195,35 @@ addedFiles baseDir base = do
 -------------------------------------------------------------------------------
 
 -- | Stage a list of files (paths relative to the repo root).
-gitAdd :: FilePath -> [FilePath] -> IO ()
+gitAdd :: MonadIO m => FilePath -> [FilePath] -> m ()
 gitAdd _ [] = pure ()
 gitAdd baseDir paths = gitCommandOrFail baseDir $ ["add", "--"] <> paths
 
 -- | Create a commit with the given message. Only staged changes are committed.
 -- Uses @--no-verify@ to skip pre-commit hooks and @--no-gpg-sign@ to avoid
 -- GPG signing issues, since this is an automated release commit.
-gitCommit :: FilePath -> String -> IO ()
+gitCommit :: MonadIO m => FilePath -> String -> m ()
 gitCommit baseDir msg = gitCommandOrFail baseDir ["commit", "--no-verify", "--no-gpg-sign", "-m", msg]
 
 -- | Create a lightweight tag at HEAD.
-gitTag :: FilePath -> String -> IO ()
+gitTag :: MonadIO m => FilePath -> String -> m ()
 gitTag baseDir tag = gitCommandOrFail baseDir ["tag", tag]
 
 -- | Run a git command in a directory, throwing on failure.
-gitCommandOrFail :: FilePath -> [String] -> IO ()
+gitCommandOrFail :: MonadIO m => FilePath -> [String] -> m ()
 gitCommandOrFail dir args = do
-  (code, _, err) <- readProcessWithExitCode "git" (["-C", dir] <> args) ""
+  (code, _, err) <- liftIO $ readProcessWithExitCode "git" (["-C", dir] <> args) ""
   case code of
     ExitSuccess -> pure ()
     _ -> throwHerald $ "git " <> unwords args <> " failed: " <> err
 
--- | Run a git command in a given directory and return trimmed stdout on success.
-gitCommandIn :: FilePath -> [String] -> IO (Maybe String)
+-- | Run a git command in a given directory, failing when it exits non-zero.
+-- Returns trimmed stdout on success.
+gitCommandIn :: MonadIO m => FilePath -> [String] -> MaybeT m String
 gitCommandIn dir args = do
-  (code, out, _) <- readProcessWithExitCode "git" (["-C", dir] <> args) ""
-  pure $ case code of
-    ExitSuccess -> Just $ trimEnd out
-    _ -> Nothing
+  (code, out, _) <- liftIO $ readProcessWithExitCode "git" (["-C", dir] <> args) ""
+  case code of
+    ExitSuccess -> pure $ trimEnd out
+    _ -> empty
  where
   trimEnd = reverse . dropWhile isSpace . reverse

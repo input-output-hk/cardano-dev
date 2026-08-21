@@ -97,6 +97,7 @@ executable herald
     optparse-applicative,
     text,
     time,
+    transformers,
 
 library herald-test-lib
   import: warnings, lang
@@ -160,6 +161,7 @@ test-suite herald-test
     temporary,
     text,
     time,
+    transformers,
     yaml,
 
 test-suite herald-test-e2e
@@ -203,4 +205,5 @@ test-suite herald-test-e2e
     temporary,
     text,
     time,
+    transformers,
     yaml,

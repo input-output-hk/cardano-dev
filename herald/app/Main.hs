@@ -1,6 +1,10 @@
 module Main where
 
 import Control.Exception (catch)
+import Control.Monad (forM, forM_, void)
+import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.Maybe (hoistMaybe, runMaybeT)
 import Data.Text qualified as T
 import Data.Time (Day, defaultTimeLocale, getCurrentTime, parseTimeM, utctDay)
 import Data.Version (showVersion)
@@ -264,7 +268,7 @@ main = do
           hPutStrLn stderr $ "Error: " <> msg
           exitFailure
 
-runCommand :: Config -> Command -> IO ()
+runCommand :: MonadIO m => Config -> Command -> m ()
 runCommand config cmd = case cmd of
   CmdInit -> pure ()
   CmdNew newOpts -> runNew config newOpts
@@ -278,45 +282,44 @@ runCommand config cmd = case cmd of
       if validateDiff_ valOpts
         then validateDiff config "."
         else pure []
-    prErrors <- case validatePR_ valOpts of
-      Just pr -> validatePR config "." pr
-      Nothing -> pure []
+    prErrors <- concat <$> forM (validatePR_ valOpts) (validatePR config ".")
     let errors = fileErrors <> diffErrors <> prErrors
     if null errors
-      then putStrLn "All changelog fragments valid."
+      then liftIO $ putStrLn "All changelog fragments valid."
       else do
         throwHerald . T.unpack $ T.intercalate "\n" errors
-  CmdBatch batchOpts -> do
+  CmdBatch batchOpts -> void . runMaybeT $ do
     let package = T.pack $ batchPackage_ batchOpts
         versionChoice = batchVersionChoice batchOpts
-    day <- maybe (utctDay <$> getCurrentTime) pure $ batchDate batchOpts
+    day <- hoistMaybe (batchDate batchOpts) <|> liftIO (utctDay <$> getCurrentTime)
     case batchMode batchOpts of
       DryRun -> do
-        mResult <- dryRunBatch config "." package versionChoice day
-        maybe (pure ()) (printDryRunResult versionChoice) mResult
+        result <- dryRunBatch config "." package versionChoice day
+        printDryRunResult versionChoice result
       Execute commitMode -> do
-        mResult <- batchPackage config "." package versionChoice day
-        maybe (pure ()) (reportBatchResult commitMode) mResult
-  CmdNext nextOpts -> do
-    result <- nextVersion config "." (T.pack $ nextPackage nextOpts)
-    maybe
-      ( throwHerald $
-          "Could not compute next version for "
-            <> nextPackage nextOpts
-            <> ". Are there unreleased changelog fragments?"
-      )
-      (putStrLn . showPvp)
-      result
+        result <- batchPackage config "." package versionChoice day
+        reportBatchResult commitMode result
+  CmdNext nextOpts -> void . runMaybeT $ do
+    pv <-
+      nextVersion config "." (T.pack $ nextPackage nextOpts)
+        <|> lift
+          ( throwHerald $
+              "Could not compute next version for "
+                <> nextPackage nextOpts
+                <> ". Are there unreleased changelog fragments?"
+          )
+    liftIO . putStrLn $ showPvp pv
 
 -- | Print a completed batch's result and perform the requested commit\/tag.
-reportBatchResult :: CommitMode -> BatchResult -> IO ()
+reportBatchResult :: MonadIO m => CommitMode -> BatchResult -> m ()
 reportBatchResult commitMode result = do
-  putStrLn $
-    "Batched " <> T.unpack (batchResultPackage result) <> " " <> showPvp (batchResultVersion result)
-  putStrLn $ "  Changelog: " <> batchResultChangelog result
-  maybe (pure ()) (\path -> putStrLn $ "  Version file: " <> path) $ batchResultVersionPath result
-  putStrLn "  Consumed changelog fragments:"
-  mapM_ (\f -> putStrLn $ "    " <> f) $ batchResultFragments result
+  liftIO $
+    putStrLn $
+      "Batched " <> T.unpack (batchResultPackage result) <> " " <> showPvp (batchResultVersion result)
+  liftIO $ putStrLn $ "  Changelog: " <> batchResultChangelog result
+  forM_ (batchResultVersionPath result) $ \path -> liftIO $ putStrLn $ "  Version file: " <> path
+  liftIO $ putStrLn "  Consumed changelog fragments:"
+  forM_ (batchResultFragments result) $ \fragment -> liftIO $ putStrLn $ "    " <> fragment
   commitBatchResult "." result commitMode
 
 -- | Whether a version choice leaves the version to be computed rather than
@@ -328,35 +331,37 @@ isAutoComputedVersion _ = True
 -- | Print a batch dry-run report: current\/new version (marked auto-computed
 -- when applicable), each fragment's path\/kinds\/fate, and the changelog
 -- section a real batch would prepend.
-printDryRunResult :: VersionChoice -> DryRunResult -> IO ()
+printDryRunResult :: MonadIO m => VersionChoice -> DryRunResult -> m ()
 printDryRunResult versionChoice result = do
-  putStrLn $ "Dry run for " <> T.unpack (dryRunPackage result) <> ":"
-  putStrLn $ "  Current version: " <> maybe "(none)" showPvp (dryRunCurrentVersion result)
-  putStrLn $
-    "  New version:     "
-      <> showPvp (dryRunVersion result)
-      <> if isAutoComputedVersion versionChoice then " (auto-computed)" else ""
-  putStrLn "  Fragments:"
+  liftIO $ putStrLn $ "Dry run for " <> T.unpack (dryRunPackage result) <> ":"
+  liftIO $ putStrLn $ "  Current version: " <> maybe "(none)" showPvp (dryRunCurrentVersion result)
+  liftIO $
+    putStrLn $
+      "  New version:     "
+        <> showPvp (dryRunVersion result)
+        <> if isAutoComputedVersion versionChoice then " (auto-computed)" else ""
+  liftIO $ putStrLn "  Fragments:"
   mapM_ printFragment $ dryRunFragments result
-  putStrLn ""
-  putStrLn "Changelog section that would be prepended:"
-  putStrLn . T.unpack $ dryRunSection result
+  liftIO $ putStrLn ""
+  liftIO $ putStrLn "Changelog section that would be prepended:"
+  liftIO . putStrLn . T.unpack $ dryRunSection result
  where
   printFragment frag =
-    putStrLn $
-      "    "
-        <> dryRunFragmentPath frag
-        <> " ("
-        <> T.unpack (T.intercalate ", " $ dryRunFragmentKinds frag)
-        <> ") - "
-        <> case dryRunFragmentFate frag of
-          Included -> "included in changelog"
-          ExcludedNonNotable ->
-            "excluded (non-notable kinds: " <> T.unpack (T.intercalate ", " $ dryRunFragmentKinds frag) <> ")"
+    liftIO $
+      putStrLn $
+        "    "
+          <> dryRunFragmentPath frag
+          <> " ("
+          <> T.unpack (T.intercalate ", " $ dryRunFragmentKinds frag)
+          <> ") - "
+          <> case dryRunFragmentFate frag of
+            Included -> "included in changelog"
+            ExcludedNonNotable ->
+              "excluded (non-notable kinds: " <> T.unpack (T.intercalate ", " $ dryRunFragmentKinds frag) <> ")"
 
 -- | Run the 'new' command. If all required options are provided, create fragments
 -- directly. Otherwise, enter interactive mode.
-runNew :: Config -> NewOpts -> IO ()
+runNew :: MonadIO m => Config -> NewOpts -> m ()
 runNew config newOpts = do
   let projects = splitCommas $ newOptProjects newOpts
       kinds = splitCommas $ newOptKinds newOpts
@@ -366,10 +371,10 @@ runNew config newOpts = do
     _ -> interactiveNew config
   mapM_ (createAndReport config) optsList
 
-createAndReport :: Config -> NewOptions -> IO ()
+createAndReport :: MonadIO m => Config -> NewOptions -> m ()
 createAndReport config fragmentOpts = do
   path <- createFragment config "." fragmentOpts
-  putStrLn $ "Created changelog fragment: " <> path
+  liftIO $ putStrLn $ "Created changelog fragment: " <> path
 
 -- | Split a list of strings on commas and flatten.
 -- e.g. @[\"a,b\", \"c\"] -> [\"a\", \"b\", \"c\"]@

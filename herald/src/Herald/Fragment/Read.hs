@@ -26,25 +26,22 @@ import Herald.Types (Config (..), Fragment (..), ProjectConfig (..), allChangesD
 -- | Read all fragment YAML files from all changes directories.
 -- Returns @(path, fragment)@ pairs where path is relative to the base
 -- directory (e.g. @.changes\/42-fix.yml@ or @cardano-api\/.changes\/42-fix.yml@).
-readAllFragments :: Config -> FilePath -> IO [(FilePath, Fragment)]
+readAllFragments :: MonadIO m => Config -> FilePath -> m [(FilePath, Fragment)]
 readAllFragments config baseDir = do
-  globalFrags <- case configChangesDir config of
-    Just dir -> readFragmentsFromDir baseDir dir Nothing
-    Nothing -> pure []
+  globalFrags <-
+    concat <$> forM (configChangesDir config) (\dir -> readFragmentsFromDir baseDir dir Nothing)
   perProjectFrags <- fmap concat . forM (Map.toList $ configProjects config) $ \(projectName, pc) ->
-    case projectChangesDir pc of
-      Just dir -> readFragmentsFromDir baseDir dir (Just projectName)
-      Nothing -> pure []
+    concat <$> forM (projectChangesDir pc) (\dir -> readFragmentsFromDir baseDir dir (Just projectName))
   pure $ globalFrags <> perProjectFrags
 
 -- | Read fragments belonging to a specific project.
-readProjectFragments :: Config -> FilePath -> Text -> IO [(FilePath, Fragment)]
+readProjectFragments :: MonadIO m => Config -> FilePath -> Text -> m [(FilePath, Fragment)]
 readProjectFragments config baseDir package =
   filter (\(_, frag) -> fragmentProject frag == package)
     <$> readAllFragments config baseDir
 
 -- | List paths to all @.yml@ fragment files, relative to the repo root (for validation).
-discoverFragmentPaths :: Config -> FilePath -> IO [FilePath]
+discoverFragmentPaths :: MonadIO m => Config -> FilePath -> m [FilePath]
 discoverFragmentPaths config baseDir = do
   let dirs = allChangesDirs config
   fmap concat . forM dirs $ \dir -> do
@@ -54,7 +51,7 @@ discoverFragmentPaths config baseDir = do
 
 -- | Read fragments from a single directory, optionally inferring the project
 -- from the directory when the @project@ field is absent.
-readFragmentsFromDir :: FilePath -> FilePath -> Maybe Text -> IO [(FilePath, Fragment)]
+readFragmentsFromDir :: MonadIO m => FilePath -> FilePath -> Maybe Text -> m [(FilePath, Fragment)]
 readFragmentsFromDir baseDir changesDir mProjectName = do
   let absDir = baseDir </> changesDir
   files <- discoverFragmentFiles absDir
@@ -62,7 +59,7 @@ readFragmentsFromDir baseDir changesDir mProjectName = do
     let absPath = absDir </> f
     value <-
       either (\err -> throwHerald $ changesDir </> f <> ": " <> Yaml.prettyPrintParseException err) pure
-        =<< Yaml.decodeFileEither absPath
+        =<< liftIO (Yaml.decodeFileEither absPath)
     let value' = maybe value (`injectProject` value) mProjectName
     frag <- case parseEither Aeson.parseJSON value' of
       Left err -> throwHerald $ changesDir </> f <> ": " <> err
@@ -78,11 +75,11 @@ injectProject _ v = v
 
 -- | List @.yml@/@.yaml@ filenames in a directory (relative, sorted).
 -- Files starting with @_@ are skipped (used for templates).
-discoverFragmentFiles :: FilePath -> IO [FilePath]
+discoverFragmentFiles :: MonadIO m => FilePath -> m [FilePath]
 discoverFragmentFiles dir = do
-  exists <- doesDirectoryExist dir
+  exists <- liftIO $ doesDirectoryExist dir
   if exists
-    then sort . filter isFragment <$> listDirectory dir
+    then sort . filter isFragment <$> liftIO (listDirectory dir)
     else pure []
  where
   isFragment f = takeExtension f `elem` [".yml", ".yaml"] && not (isTemplate f)
