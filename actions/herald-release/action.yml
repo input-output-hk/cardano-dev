@@ -265,7 +265,7 @@ runs:
         \`\`\`bash
         git fetch origin $BRANCH
         git checkout -B $BRANCH origin/$BRANCH
-        git rebase HEAD~${COMMIT_COUNT} --exec 'git commit --amend --no-edit -S'
+        git rebase --force-rebase --gpg-sign HEAD~${COMMIT_COUNT}
         git tag -s -m "$PACKAGE $VERSION" $TAG HEAD~$((COMMIT_COUNT - 1))  # batch commit, one before HEAD
         git push --force origin $BRANCH
         git push origin $TAG

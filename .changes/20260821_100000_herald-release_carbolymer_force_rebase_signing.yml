@@ -1,0 +1,5 @@
+description: The release PR signing instructions now use `git rebase --force-rebase --gpg-sign` instead of re-signing each commit with an `--exec 'git commit --amend --no-edit -S'` loop. The result is identical (all release commits recreated and signed), with a simpler single-pass command.
+kind:
+- compatible
+pr: 44
+project: herald-release

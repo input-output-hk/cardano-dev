@@ -343,7 +343,7 @@ to sign the commits and create the signed tag before merging:
 ```bash
 git fetch origin release/cardano-api-9.0.0.0
 git checkout -B release/cardano-api-9.0.0.0 origin/release/cardano-api-9.0.0.0
-git rebase HEAD~2 --exec 'git commit --amend --no-edit -S'
+git rebase --force-rebase --gpg-sign HEAD~2
 git tag -s cardano-api-9.0.0.0 HEAD~1
 git push --force origin release/cardano-api-9.0.0.0
 git push origin cardano-api-9.0.0.0
