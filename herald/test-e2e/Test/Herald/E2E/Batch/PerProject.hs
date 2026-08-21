@@ -23,7 +23,13 @@ import Test.Herald.Fixtures (testDay)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.Hedgehog (testProperty)
 
-import Herald.Command.Batch (BatchResult (..), CommitMode (..), batchPackage, commitBatchResult)
+import Herald.Command.Batch
+  ( BatchResult (..)
+  , CommitMode (..)
+  , VersionChoice (..)
+  , batchPackage
+  , commitBatchResult
+  )
 
 tests :: TestTree
 tests =
@@ -50,7 +56,7 @@ tests =
 prop_batch_both_dirs :: Property
 prop_batch_both_dirs = H.propertyOnce $ do
   result <- H.evalIO $ setupPerProjectRepo $ \tmpDir ->
-    batchPackage testConfigPerProject tmpDir "cardano-api" Nothing testDay
+    batchPackage testConfigPerProject tmpDir "cardano-api" AutoVersion testDay
 
   br <- H.nothingFail result
   let frags = sort $ batchResultFragments br
@@ -60,7 +66,7 @@ prop_batch_both_dirs = H.propertyOnce $ do
 prop_batch_deletes_from_origin :: Property
 prop_batch_deletes_from_origin = H.propertyOnce $ do
   (perProjectExists, globalExists, globalRemaining) <- H.evalIO $ setupPerProjectRepo $ \tmpDir -> do
-    Just _ <- batchPackage testConfigPerProject tmpDir "cardano-api" Nothing testDay
+    Just _ <- batchPackage testConfigPerProject tmpDir "cardano-api" AutoVersion testDay
     ppExists <- doesFileExist $ tmpDir </> "cardano-api" </> ".changes" </> "42-fix-serialization.yml"
     gExists <- doesFileExist $ tmpDir </> ".changes" </> "99-add-conway-support.yml"
     gRemaining <- sort <$> listDirectory (tmpDir </> ".changes")
@@ -77,7 +83,7 @@ prop_batch_per_project_only = H.propertyOnce $ do
     let globalFrag = tmpDir </> ".changes" </> "99-add-conway-support.yml"
     exists <- doesFileExist globalFrag
     when exists $ removeFile globalFrag
-    Just _ <- batchPackage testConfigPerProject tmpDir "cardano-api" Nothing testDay
+    Just _ <- batchPackage testConfigPerProject tmpDir "cardano-api" AutoVersion testDay
     T.readFile $ tmpDir </> "cardano-api" </> "CHANGELOG.md"
 
   changelog `shouldContain` "Fix serialization"
@@ -86,7 +92,7 @@ prop_batch_per_project_only = H.propertyOnce $ do
 prop_batch_no_global_dir :: Property
 prop_batch_no_global_dir = H.propertyOnce $ do
   changelog <- H.evalIO $ setupPerProjectNoGlobalRepo $ \tmpDir -> do
-    Just _ <- batchPackage testConfigPerProjectNoGlobal tmpDir "lib-a" Nothing testDay
+    Just _ <- batchPackage testConfigPerProjectNoGlobal tmpDir "lib-a" AutoVersion testDay
     T.readFile $ tmpDir </> "lib-a" </> "CHANGELOG.md"
 
   changelog `shouldContain` "New feature"
@@ -95,7 +101,7 @@ prop_batch_no_global_dir = H.propertyOnce $ do
 prop_batch_commit_both_dirs :: Property
 prop_batch_commit_both_dirs = H.propertyOnce $ do
   committedFiles <- H.evalIO $ setupPerProjectBatchRepo $ \tmpDir -> do
-    Just result <- batchPackage testConfigPerProject tmpDir "cardano-api" Nothing testDay
+    Just result <- batchPackage testConfigPerProject tmpDir "cardano-api" AutoVersion testDay
     commitBatchResult tmpDir result Commit
     readGit tmpDir ["diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"]
 

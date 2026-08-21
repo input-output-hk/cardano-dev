@@ -11,11 +11,31 @@ Batching collects unreleased [fragments](fragments.md) for a package, renders a 
 
 ## Version computation
 
-- **Auto mode** (no `--version`): reads the current version from the configured version source and applies the maximum [bump](pvp.md#bumping) across all fragment kinds.
-  Auto mode requires a configured version source; without one it is a hard error.
+Batch requires the caller to choose exactly one of:
+
+- **Explicit** (`--version A.B.C.D` / `-v`): uses the provided version.
+  Works even without a configured version source (changelog-only update).
+  This `--version` is scoped to `batch` only; see [CLI](cli.md) for the distinct top-level `herald --version`.
+- **Auto** (`--auto-version`): reads the current version from the configured version source and applies the maximum [bump](pvp.md#bumping) across all fragment kinds.
+  Requires a configured version source; without one it is a hard error.
   If the version source file exists but has no parseable version line, it is a hard error.
-- **Explicit mode** (`--version A.B.C.D`): uses the provided version.
-  Explicit mode works even without a configured version source (changelog-only update).
+
+Passing both `--version` and `--auto-version` together is rejected.
+Omitting both is a hard error: `batch requires an explicit version: pass --version <computed> or --auto-version (preview with --dry-run)` when the current version is computable, or the same message with a placeholder `A.B.C.D` and no `--dry-run` hint when it is not.
+The requirement only applies when there are fragments to release: a project with no unreleased fragments still returns `Nothing` (warns) regardless of whether a version flag was given.
+`--dry-run` (see below) is exempt from this requirement: omitting both flags there defaults to auto-computation, since nothing is mutated.
+
+## Dry run
+
+`--dry-run` runs fragment validation and version computation but mutates nothing: no changelog write, no version-source write, no fragment deletion, no git action.
+Omitting both `--version` and `--auto-version` is allowed in dry-run mode and defaults to auto-computation.
+The downgrade check still applies -- dry-run performs the same validation and version computation as a real batch, just without writing the result.
+Output:
+- The current and new version, with the new version marked auto-computed when it was.
+- Each fragment's path, kinds, and fate: included in the changelog, or excluded for having only non-notable kinds.
+- The changelog section exactly as a real batch would prepend it.
+
+`--dry-run` is mutually exclusive with `--commit` and `--commit-tag`.
 
 ## Downgrade check
 
@@ -64,13 +84,13 @@ A successful batch returns:
 
 ## Acceptance criteria
 
-### Auto-version
+### Auto-version (`--auto-version`)
 1. Auto-version computes the correct bump from fragment kinds (e.g. bugfix + breaking = breaking wins, `8.4.1.2` becomes `8.5.0.0`).
 2. Auto-version without a configured version source is a hard error.
 3. Auto-version with a `.cabal` file missing its `version:` line is a hard error.
 4. Auto-version with a missing version-file treats current as `0.0.0.0` and bumps accordingly.
 
-### Explicit version
+### Explicit version (`--version`)
 5. Batch with explicit version updates `.cabal` and changelog.
 6. Batch with explicit version on a version-file project writes the version file and changelog.
 7. Explicit version equal to current is accepted.
@@ -79,46 +99,61 @@ A successful batch returns:
 10. Downgrade check is skipped when the version line is missing.
 11. Batch without version source uses explicit version for changelog-only update.
 
+### Version choice is required
+12. Batch with neither `--version` nor `--auto-version`, and a computable current version, is a hard error whose message includes the concrete auto-computed version to pass.
+13. Batch with neither flag, and no computable current version (no version source), is a hard error without a concrete version suggestion.
+14. Batch with neither flag but no fragments for the package still returns `Nothing` (warns); the requirement does not block the no-op case.
+15. Batch rejects passing both `--version` and `--auto-version` together (enforced structurally by the CLI parser, the same way as the pre-existing `--commit`/`--commit-tag` exclusion; not covered by an automated test).
+
 ### Changelog
-12. Changelog section is prepended above existing sections.
-13. Old content is preserved.
-14. Full lifecycle output matches [R10](../requirements.md#r10-changelog-output-format) format: version header, date, entries sorted by PR descending, kind labels, PR links.
-15. Non-notable fragments contribute to version bump but are hidden from changelog.
-16. Explicit `--date` appears in the changelog header.
+16. Changelog section is prepended above existing sections.
+17. Old content is preserved.
+18. Full lifecycle output matches [R10](../requirements.md#r10-changelog-output-format) format: version header, date, entries sorted by PR descending, kind labels, PR links.
+19. Non-notable fragments contribute to version bump but are hidden from changelog.
+20. Explicit `--date` appears in the changelog header.
 
 ### Fragment lifecycle
-17. Consumed fragments are deleted from the changes directory.
-18. No fragments: returns `Nothing`.
-19. Batch twice: second call returns `Nothing`.
-20. Re-batch with new fragments produces a second changelog section.
-21. Invalid fragment (unknown kind): hard error, no files modified.
-22. Mixed valid/invalid kinds in one fragment: still rejected.
-23. Unknown project: hard error.
+21. Consumed fragments are deleted from the changes directory.
+22. No fragments: returns `Nothing`.
+23. Batch twice: second call returns `Nothing`.
+24. Re-batch with new fragments produces a second changelog section.
+25. Invalid fragment (unknown kind): hard error, no files modified.
+26. Mixed valid/invalid kinds in one fragment: still rejected.
+27. Unknown project: hard error.
 
 ### File requirements
-24. Missing `CHANGELOG.md` on disk: hard error.
-25. Missing `.cabal` file on disk: hard error.
-26. Missing version file: created automatically.
+28. Missing `CHANGELOG.md` on disk: hard error.
+29. Missing `.cabal` file on disk: hard error.
+30. Missing version file: created automatically.
 
 ### Commit and tag
-27. `--commit` creates a commit containing changelog, version source, and consumed fragments only; files belonging to other projects are excluded.
-28. `--commit-tag` creates a commit and a `PACKAGE-VERSION` tag.
-29. `--commit` with version-file stages the version file.
-30. `--commit-tag` with version-file creates the correct tag.
+31. `--commit` creates a commit containing changelog, version source, and consumed fragments only; files belonging to other projects are excluded.
+32. `--commit-tag` creates a commit and a `PACKAGE-VERSION` tag.
+33. `--commit` with version-file stages the version file.
+34. `--commit-tag` with version-file creates the correct tag.
 
 ### Result fields
-31. `BatchResult` contains correct package name, version, changelog path, and version source path.
-32. Version-file `BatchResult` has correct fields.
+35. `BatchResult` contains correct package name, version, changelog path, and version source path.
+36. Version-file `BatchResult` has correct fields.
 
 ### CHaP submission instructions (release PR body)
-33. When `chap-instructions` is enabled and the project has a `cabal-file`, the release PR body includes a "Step 2: Submit to CHaP" section with copy-paste commands (branch creation, `add-from-github.sh` with repo URL and subdir, push, `gh pr create`, `gh pr comment`).
-34. When the project uses `version-file` only, the CHaP section is omitted.
-35. When the `cabal-file` path contains a directory component (e.g. `sub/pkg.cabal`), the `add-from-github.sh` invocation includes the subdir argument.
-36. When the `cabal-file` is at the repository root, no subdir argument is passed.
+37. When `chap-instructions` is enabled and the project has a `cabal-file`, the release PR body includes a "Step 2: Submit to CHaP" section with copy-paste commands (branch creation, `add-from-github.sh` with repo URL and subdir, push, `gh pr create`, `gh pr comment`).
+38. When the project uses `version-file` only, the CHaP section is omitted.
+39. When the `cabal-file` path contains a directory component (e.g. `sub/pkg.cabal`), the `add-from-github.sh` invocation includes the subdir argument.
+40. When the `cabal-file` is at the repository root, no subdir argument is passed.
 
 ### Per-project `changes-dir`
-37. Batch collects fragments from both global and per-project directories.
-38. Consumed fragments are deleted from their originating directory (not from a single hardcoded path).
-39. `--commit` stages fragment deletions using originating directory paths.
-40. Batch with fragments in both global and per-project dirs processes all of them.
-41. Batch with fragments only in the per-project dir (no global dir configured) succeeds.
+41. Batch collects fragments from both global and per-project directories.
+42. Consumed fragments are deleted from their originating directory (not from a single hardcoded path).
+43. `--commit` stages fragment deletions using originating directory paths.
+44. Batch with fragments in both global and per-project dirs processes all of them.
+45. Batch with fragments only in the per-project dir (no global dir configured) succeeds.
+
+### Dry run (`--dry-run`)
+46. `--dry-run` does not modify the changelog, version source, or fragment files on disk.
+47. `--dry-run` with neither `--version` nor `--auto-version` defaults to the auto-computed version.
+48. `--dry-run` marks the new version as auto-computed when applicable, and not when an explicit version was given (the CLI derives this from which flag was passed; tested at the library level by checking that the resolved version differs correctly between the two choices).
+49. `--dry-run` reports each fragment's path, kinds, and fate (included in the changelog, or excluded for non-notable kinds).
+50. `--dry-run`'s printed changelog section is identical to what a real batch would prepend for the same inputs.
+51. `--dry-run` still applies the downgrade check.
+52. `--dry-run` is mutually exclusive with `--commit` and `--commit-tag` (enforced structurally by the CLI parser; not covered by an automated test, same as 15).

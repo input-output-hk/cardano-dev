@@ -1,0 +1,5 @@
+description: The batch command now requires choosing either --version or the new --auto-version flag instead of silently guessing the version when neither is given.
+kind:
+- breaking
+pr: 44
+project: herald
