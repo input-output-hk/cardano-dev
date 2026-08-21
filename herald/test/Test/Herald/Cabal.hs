@@ -1,6 +1,8 @@
 module Test.Herald.Cabal (tests) where
 
+import Data.ByteString qualified as BS
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 
@@ -23,6 +25,10 @@ tests =
     , testProperty "no version line returns Nothing" prop_read_no_version
     , testProperty "write version preserves file" prop_write_preserves
     , testProperty "write then read roundtrip" prop_write_read_roundtrip
+    , testProperty "write preserves column alignment" prop_write_preserves_alignment
+    , testProperty "write with no space after colon inserts one space" prop_write_no_space_after_colon
+    , testProperty "write preserves CRLF line endings" prop_write_preserves_crlf
+    , testProperty "write preserves absence of trailing newline" prop_write_preserves_no_trailing_newline
     ]
 
 sampleCabal :: String
@@ -44,6 +50,46 @@ sampleCabalSpaces =
     , "name:          cardano-api"
     , "version:        8.4.1.2"
     , "synopsis:      Test package"
+    ]
+
+sampleCabalAligned :: String
+sampleCabalAligned =
+  unlines
+    [ "cabal-version: 3.0"
+    , "name:                   cardano-api"
+    , "version:                11.1.0"
+    , "synopsis:               Test package"
+    ]
+
+sampleCabalNoSpace :: String
+sampleCabalNoSpace =
+  unlines
+    [ "cabal-version: 3.0"
+    , "name: cardano-api"
+    , "version:8.4.1.2"
+    , "synopsis: Test package"
+    ]
+
+-- | A .cabal file using CRLF line endings throughout, including the trailing one.
+sampleCabalCRLF :: T.Text
+sampleCabalCRLF =
+  T.intercalate
+    "\r\n"
+    [ "cabal-version: 3.0"
+    , "name: cardano-api"
+    , "version: 8.4.1.2"
+    , "synopsis: Test package"
+    , ""
+    ]
+
+-- | A .cabal file with no final trailing newline.
+sampleCabalNoTrailingNewline :: T.Text
+sampleCabalNoTrailingNewline =
+  T.intercalate
+    "\n"
+    [ "cabal-version: 3.0"
+    , "version: 8.4.1.2"
+    , "synopsis: Test package"
     ]
 
 -- | A .cabal file without a version: line returns Nothing.
@@ -99,3 +145,59 @@ prop_write_read_roundtrip = H.propertyOnce $ do
  where
   -- withSystemTmpDirectory is just an alias for clarity in this context
   withSystemTmpDirectory = withSystemTempDirectory
+
+-- | Column alignment between @version:@ and its value is preserved when rewriting.
+prop_write_preserves_alignment :: Property
+prop_write_preserves_alignment = H.propertyOnce $ do
+  content <- H.evalIO $ withSystemTempDirectory "herald-test" $ \tmpDir -> do
+    let cabalFile = tmpDir </> "test.cabal"
+    writeFile cabalFile sampleCabalAligned
+    writeCabalVersion cabalFile (pvp 12 0 0 0)
+    T.pack <$> readFile cabalFile
+  content `shouldContain` "version:                12.0.0.0"
+  content `shouldContain` "name:                   cardano-api"
+  content `shouldContain` "synopsis:               Test package"
+
+-- | A version line with no whitespace after the colon gets a single space inserted.
+prop_write_no_space_after_colon :: Property
+prop_write_no_space_after_colon = H.propertyOnce $ do
+  content <- H.evalIO $ withSystemTempDirectory "herald-test" $ \tmpDir -> do
+    let cabalFile = tmpDir </> "test.cabal"
+    writeFile cabalFile sampleCabalNoSpace
+    writeCabalVersion cabalFile (pvp 9 0 0 0)
+    T.pack <$> readFile cabalFile
+  content `shouldContain` "version: 9.0.0.0"
+
+-- | CRLF line endings are preserved on every line, including the rewritten version line.
+prop_write_preserves_crlf :: Property
+prop_write_preserves_crlf = H.propertyOnce $ do
+  content <- H.evalIO $ withSystemTempDirectory "herald-test" $ \tmpDir -> do
+    let cabalFile = tmpDir </> "test.cabal"
+    BS.writeFile cabalFile $ TE.encodeUtf8 sampleCabalCRLF
+    writeCabalVersion cabalFile (pvp 9 0 0 0)
+    TE.decodeUtf8 <$> BS.readFile cabalFile
+  content
+    === T.intercalate
+      "\r\n"
+      [ "cabal-version: 3.0"
+      , "name: cardano-api"
+      , "version: 9.0.0.0"
+      , "synopsis: Test package"
+      , ""
+      ]
+
+-- | A file with no final trailing newline stays that way after rewriting.
+prop_write_preserves_no_trailing_newline :: Property
+prop_write_preserves_no_trailing_newline = H.propertyOnce $ do
+  content <- H.evalIO $ withSystemTempDirectory "herald-test" $ \tmpDir -> do
+    let cabalFile = tmpDir </> "test.cabal"
+    BS.writeFile cabalFile $ TE.encodeUtf8 sampleCabalNoTrailingNewline
+    writeCabalVersion cabalFile (pvp 9 0 0 0)
+    TE.decodeUtf8 <$> BS.readFile cabalFile
+  content
+    === T.intercalate
+      "\n"
+      [ "cabal-version: 3.0"
+      , "version: 9.0.0.0"
+      , "synopsis: Test package"
+      ]

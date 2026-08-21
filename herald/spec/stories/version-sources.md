@@ -19,6 +19,11 @@ A `.cabal` file without a `version:` line returns `Nothing`.
 `writeCabalVersion` updates the `version:` line to the new value.
 All other content (name, synopsis, build-depends, etc.) is preserved.
 Write-then-read roundtrips correctly.
+The rewrite is whitespace- and line-ending-preserving: the column alignment between
+`version:` and its value is kept (a formatted file such as `version:                11.1.0`
+stays aligned), a missing space after the colon gets exactly one space inserted, CRLF
+line endings are kept on every line including the rewritten one, and the presence or
+absence of a final trailing newline is unchanged.
 
 ## Version file operations
 
@@ -51,22 +56,26 @@ Write-then-read roundtrips correctly.
 ### `.cabal` writing
 4. `writeCabalVersion` updates the version line and preserves all other content.
 5. Write-then-read roundtrips correctly.
+6. Column alignment between `version:` and its value is preserved when rewriting.
+7. A version line with no whitespace after the colon gets a single space inserted before the new value.
+8. CRLF line endings are preserved on every line, including the rewritten version line.
+9. The presence or absence of a final trailing newline is preserved.
 
 ### Version file reading
-6. Reads a valid PVP version from a plain text file.
-7. Leading/trailing whitespace is stripped.
-8. UTF-8 BOM is stripped.
-9. CRLF line endings are handled.
-10. Three-component versions are accepted.
-11. Empty file returns `0.0.0.0`.
-12. Missing file returns `0.0.0.0`.
-13. Empty file emits a warning to stderr.
-14. Missing file emits a warning to stderr.
-15. Extra text on the version line is a parse error.
-16. Comment lines are a parse error.
-17. Multiple lines are a parse error.
+10. Reads a valid PVP version from a plain text file.
+11. Leading/trailing whitespace is stripped.
+12. UTF-8 BOM is stripped.
+13. CRLF line endings are handled.
+14. Three-component versions are accepted.
+15. Empty file returns `0.0.0.0`.
+16. Missing file returns `0.0.0.0`.
+17. Empty file emits a warning to stderr.
+18. Missing file emits a warning to stderr.
+19. Extra text on the version line is a parse error.
+20. Comment lines are a parse error.
+21. Multiple lines are a parse error.
 
 ### Version file writing
-18. Write-then-read roundtrips correctly.
-19. Writing to a non-existent file creates it.
-20. Writing overwrites all existing content; file contains exactly `"<version>\n"`.
+22. Write-then-read roundtrips correctly.
+23. Writing to a non-existent file creates it.
+24. Writing overwrites all existing content; file contains exactly `"<version>\n"`.
