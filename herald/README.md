@@ -98,16 +98,19 @@ plus the highest bump level across unreleased fragments for that package.
 
 ```bash
 # Auto-compute version from fragments
-herald batch cardano-api
+herald batch cardano-api --auto-version
 
 # Explicit version
 herald batch cardano-api --version 9.0.0.0
 
+# Preview without writing anything
+herald batch cardano-api --dry-run
+
 # Batch and create a git commit
-herald batch cardano-api --commit
+herald batch cardano-api --auto-version --commit
 
 # Batch, commit, and create a PACKAGE-VERSION tag
-herald batch cardano-api --commit-tag
+herald batch cardano-api --auto-version --commit-tag
 ```
 
 Batching:
@@ -362,7 +365,6 @@ Commands:
   validate   Validate fragments, check PR numbers, check diffs
   batch      Collect fragments, update changelog and version source, remove fragments
   next       Print the next version for a package
-  extract    Print a changelog section for a given version
 ```
 
 ### Global options
@@ -399,10 +401,14 @@ launches an interactive prompt with multi-select menus.
 
 ### `herald batch PACKAGE`
 
+One of `--version` or `--auto-version` is required (mutually exclusive), unless `--dry-run` is given.
+
 | Flag | Description |
 |------|-------------|
-| `-v`, `--version A.B.C.D` | Explicit version (default: auto-compute) |
+| `-v`, `--version A.B.C.D` | Explicit version to release |
+| `--auto-version` | Compute the version automatically from unreleased fragment kinds |
 | `--date YYYY-MM-DD` | Date for changelog header (default: today) |
+| `--dry-run` | Preview the batch without writing, committing, or deleting anything |
 | `--commit` | Stage and commit batch changes |
 | `--commit-tag` | Stage, commit, and create a PACKAGE-VERSION tag |
 
@@ -410,15 +416,3 @@ launches an interactive prompt with multi-select menus.
 
 Prints the auto-computed next version to stdout. Useful for scripting.
 Exit code 1 if no version can be computed (e.g. no fragments).
-
-### `herald extract PACKAGE VERSION`
-
-Prints the changelog section body for a given version to stdout. Useful for
-release workflows that need to populate a GitHub release body.
-
-| Flag | Description |
-|------|-------------|
-| `--changelog PATH` | Override changelog path (bypasses config lookup; PACKAGE not required) |
-
-If `--changelog` is a directory, appends `CHANGELOG.md`. Use `-` to read from stdin.
-VERSION is parsed as PVP; leading zeros are normalised.

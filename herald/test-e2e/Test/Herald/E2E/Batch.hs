@@ -16,7 +16,7 @@ import System.Process (readProcessWithExitCode)
 import Hedgehog (Property, (===))
 import Hedgehog qualified as H
 import Hedgehog.Extras qualified as H
-import Test.Herald.Assertions (shouldContain)
+import Test.Herald.Assertions (shouldContain, shouldNotContain)
 import Test.Herald.E2E.Fixtures.Standard (setupBatchRepo, setupTestRepo)
 import Test.Herald.E2E.Fixtures.VersionFile
   ( setupVersionFileBatchRepo
@@ -27,7 +27,17 @@ import Test.Herald.Fixtures (pvp, testConfigMultiProject, testDay)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.Hedgehog (testProperty)
 
-import Herald.Command.Batch (BatchResult (..), CommitMode (..), batchPackage, commitBatchResult)
+import Herald.Command.Batch
+  ( BatchResult (..)
+  , CommitMode (..)
+  , DryRunFragment (..)
+  , DryRunResult (..)
+  , FragmentFate (..)
+  , VersionChoice (..)
+  , batchPackage
+  , commitBatchResult
+  , dryRunBatch
+  )
 import Herald.Types (Config (..), Fragment (..), HeraldException (..), ProjectConfig (..))
 
 tests :: TestTree
@@ -69,13 +79,33 @@ tests =
     , testProperty "batch version-file result has correct fields" prop_batch_version_file_result_fields
     , testProperty "batch version-file downgrade is rejected" prop_batch_version_file_downgrade
     , testProperty "batch --commit-tag with version-file" prop_batch_version_file_commit_tag
+    , testProperty
+        "batch with neither --version nor --auto-version suggests the computed version"
+        prop_batch_requires_choice_with_suggestion
+    , testProperty
+        "batch with neither flag and no version source omits the suggestion"
+        prop_batch_requires_choice_without_suggestion
+    , testProperty
+        "batch with neither flag but no fragments still returns Nothing"
+        prop_batch_requires_choice_no_fragments_is_noop
+    , testProperty "dry-run does not modify any files on disk" prop_dry_run_no_mutation
+    , testProperty "dry-run with neither flag defaults to auto-version" prop_dry_run_default_auto_version
+    , testProperty
+        "dry-run resolves the auto-computed or explicit version depending on the choice"
+        prop_dry_run_version_by_choice
+    , testProperty "dry-run reports each fragment's fate" prop_dry_run_fragment_fate
+    , testProperty
+        "dry-run section matches what a real batch would prepend"
+        prop_dry_run_section_matches_batch
+    , testProperty "dry-run still applies the downgrade check" prop_dry_run_downgrade_check
     ]
 
 -- | Explicit version (9.0.0.0) updates .cabal and changelog; only other-project fragments remain.
 prop_batch_explicit_version :: Property
 prop_batch_explicit_version = H.propertyOnce $ do
   (cabal, changelog, remaining) <- H.evalIO $ setupTestRepo $ \tmpDir -> do
-    Just _ <- batchPackage testConfigMultiProject tmpDir "cardano-api" (Just $ pvp 9 0 0 0) testDay
+    Just _ <-
+      batchPackage testConfigMultiProject tmpDir "cardano-api" (ExplicitVersion $ pvp 9 0 0 0) testDay
     cabal <- T.readFile $ tmpDir </> "cardano-api" </> "cardano-api.cabal"
     changelog <- T.readFile $ tmpDir </> "cardano-api" </> "CHANGELOG.md"
     remaining <- sort <$> listDirectory (tmpDir </> ".changes")
@@ -89,7 +119,7 @@ prop_batch_explicit_version = H.propertyOnce $ do
 prop_batch_auto_version :: Property
 prop_batch_auto_version = H.propertyOnce $ do
   (cabal, changelog) <- H.evalIO $ setupTestRepo $ \tmpDir -> do
-    Just _ <- batchPackage testConfigMultiProject tmpDir "cardano-api" Nothing testDay
+    Just _ <- batchPackage testConfigMultiProject tmpDir "cardano-api" AutoVersion testDay
     cabal <- T.readFile $ tmpDir </> "cardano-api" </> "cardano-api.cabal"
     changelog <- T.readFile $ tmpDir </> "cardano-api" </> "CHANGELOG.md"
     pure (cabal, changelog)
@@ -101,7 +131,7 @@ prop_batch_auto_version = H.propertyOnce $ do
 prop_batch_updates_changelog :: Property
 prop_batch_updates_changelog = H.propertyOnce $ do
   changelog <- H.evalIO $ setupTestRepo $ \tmpDir -> do
-    Just _ <- batchPackage testConfigMultiProject tmpDir "cardano-api" Nothing testDay
+    Just _ <- batchPackage testConfigMultiProject tmpDir "cardano-api" AutoVersion testDay
     T.readFile $ tmpDir </> "cardano-api" </> "CHANGELOG.md"
 
   let idxNew = T.length . fst $ T.breakOn "## 8.5.0.0" changelog
@@ -114,7 +144,7 @@ prop_batch_updates_changelog = H.propertyOnce $ do
 prop_full_lifecycle :: Property
 prop_full_lifecycle = H.propertyOnce $ do
   changelog <- H.evalIO $ setupTestRepo $ \tmpDir -> do
-    Just _ <- batchPackage testConfigMultiProject tmpDir "cardano-api" Nothing testDay
+    Just _ <- batchPackage testConfigMultiProject tmpDir "cardano-api" AutoVersion testDay
     T.readFile $ tmpDir </> "cardano-api" </> "CHANGELOG.md"
 
   changelog `shouldContain` "## 8.5.0.0"
@@ -139,7 +169,7 @@ prop_full_lifecycle = H.propertyOnce $ do
 prop_non_notable_filtering :: Property
 prop_non_notable_filtering = H.propertyOnce $ do
   changelog <- H.evalIO $ setupTestRepo $ \tmpDir -> do
-    Just _ <- batchPackage testConfigMultiProject tmpDir "cardano-api-gen" Nothing testDay
+    Just _ <- batchPackage testConfigMultiProject tmpDir "cardano-api-gen" AutoVersion testDay
     T.readFile $ tmpDir </> "cardano-api-gen" </> "CHANGELOG.md"
 
   changelog `shouldContain` "## 1.0.0.1"
@@ -150,7 +180,7 @@ prop_non_notable_filtering = H.propertyOnce $ do
 prop_batch_result_fields :: Property
 prop_batch_result_fields = H.propertyOnce $ do
   result <- H.evalIO $ setupTestRepo $ \tmpDir -> do
-    Just r <- batchPackage testConfigMultiProject tmpDir "cardano-api" Nothing testDay
+    Just r <- batchPackage testConfigMultiProject tmpDir "cardano-api" AutoVersion testDay
     pure r
 
   batchResultVersion result === pvp 8 5 0 0
@@ -164,7 +194,7 @@ prop_batch_explicit_date :: Property
 prop_batch_explicit_date = H.propertyOnce $ do
   changelog <- H.evalIO $ setupTestRepo $ \tmpDir -> do
     let customDay = fromGregorian 2025 12 31
-    Just _ <- batchPackage testConfigMultiProject tmpDir "cardano-api" Nothing customDay
+    Just _ <- batchPackage testConfigMultiProject tmpDir "cardano-api" AutoVersion customDay
     T.readFile $ tmpDir </> "cardano-api" </> "CHANGELOG.md"
 
   changelog `shouldContain` "2025-12-31"
@@ -173,7 +203,7 @@ prop_batch_explicit_date = H.propertyOnce $ do
 prop_batch_commit :: Property
 prop_batch_commit = H.propertyOnce $ do
   (commitMsg, changedFiles') <- H.evalIO $ setupBatchRepo $ \tmpDir -> do
-    Just result <- batchPackage testConfigMultiProject tmpDir "cardano-api" Nothing testDay
+    Just result <- batchPackage testConfigMultiProject tmpDir "cardano-api" AutoVersion testDay
     commitBatchResult tmpDir result Commit
     msg <- readGit tmpDir ["log", "-1", "--format=%s"]
     files <- readGit tmpDir ["diff", "--name-only", "HEAD~1", "HEAD"]
@@ -193,7 +223,7 @@ prop_batch_commit = H.propertyOnce $ do
 prop_batch_commit_tag :: Property
 prop_batch_commit_tag = H.propertyOnce $ do
   tags <- H.evalIO $ setupBatchRepo $ \tmpDir -> do
-    Just result <- batchPackage testConfigMultiProject tmpDir "cardano-api" Nothing testDay
+    Just result <- batchPackage testConfigMultiProject tmpDir "cardano-api" AutoVersion testDay
     commitBatchResult tmpDir result CommitTag
     readGit tmpDir ["tag", "-l"]
 
@@ -215,7 +245,7 @@ prop_batch_no_fragments = H.propertyOnce $ do
                 $ configProjects testConfigMultiProject
           }
   result <- H.evalIO $ setupTestRepo $ \tmpDir ->
-    batchPackage configWithEmpty tmpDir "empty-project" Nothing testDay
+    batchPackage configWithEmpty tmpDir "empty-project" AutoVersion testDay
 
   H.assertWith result isNothing
 
@@ -223,8 +253,8 @@ prop_batch_no_fragments = H.propertyOnce $ do
 prop_batch_twice :: Property
 prop_batch_twice = H.propertyOnce $ do
   (first, second) <- H.evalIO $ setupTestRepo $ \tmpDir -> do
-    r1 <- batchPackage testConfigMultiProject tmpDir "cardano-api" Nothing testDay
-    r2 <- batchPackage testConfigMultiProject tmpDir "cardano-api" Nothing testDay
+    r1 <- batchPackage testConfigMultiProject tmpDir "cardano-api" AutoVersion testDay
+    r2 <- batchPackage testConfigMultiProject tmpDir "cardano-api" AutoVersion testDay
     pure (r1, r2)
 
   H.assertWith first isJust
@@ -235,7 +265,9 @@ prop_batch_downgrade :: Property
 prop_batch_downgrade = H.propertyOnce $ do
   caught <- H.evalIO $ setupTestRepo $ \tmpDir ->
     -- Current version is 8.4.1.2; requesting 1.0.0.0 is a downgrade
-    (batchPackage testConfigMultiProject tmpDir "cardano-api" (Just $ pvp 1 0 0 0) testDay >> pure False)
+    ( batchPackage testConfigMultiProject tmpDir "cardano-api" (ExplicitVersion $ pvp 1 0 0 0) testDay
+        >> pure False
+    )
       `catch` \(HeraldException _) -> pure True
 
   H.assertWith caught id
@@ -245,7 +277,7 @@ prop_batch_idempotent :: Property
 prop_batch_idempotent = H.propertyOnce $ do
   changelog <- H.evalIO $ setupTestRepo $ \tmpDir -> do
     -- First batch
-    Just _ <- batchPackage testConfigMultiProject tmpDir "cardano-api" Nothing testDay
+    Just _ <- batchPackage testConfigMultiProject tmpDir "cardano-api" AutoVersion testDay
     -- Add new fragments for a second batch
     Yaml.encodeFile
       (tmpDir </> ".changes" </> "200-new-feature.yml")
@@ -256,7 +288,7 @@ prop_batch_idempotent = H.propertyOnce $ do
         , fragmentPR = 200
         }
     let day2 = fromGregorian 2026 4 1
-    Just _ <- batchPackage testConfigMultiProject tmpDir "cardano-api" Nothing day2
+    Just _ <- batchPackage testConfigMultiProject tmpDir "cardano-api" AutoVersion day2
     T.readFile $ tmpDir </> "cardano-api" </> "CHANGELOG.md"
 
   -- Both sections present
@@ -281,7 +313,7 @@ prop_batch_no_cabal = H.propertyOnce $ do
                 ]
           }
   (result, changelog) <- H.evalIO $ setupTestRepo $ \tmpDir -> do
-    r <- batchPackage noCabalConfig tmpDir "cardano-api" (Just $ pvp 2 0 0 0) testDay
+    r <- batchPackage noCabalConfig tmpDir "cardano-api" (ExplicitVersion $ pvp 2 0 0 0) testDay
     cl <- T.readFile $ tmpDir </> "cardano-api" </> "CHANGELOG.md"
     pure (r, cl)
 
@@ -303,7 +335,9 @@ prop_batch_invalid_fragment = H.propertyOnce $ do
         }
     changelogBefore <- T.readFile $ tmpDir </> "cardano-api" </> "CHANGELOG.md"
     wasCaught <-
-      (batchPackage testConfigMultiProject tmpDir "cardano-api" (Just $ pvp 9 0 0 0) testDay >> pure False)
+      ( batchPackage testConfigMultiProject tmpDir "cardano-api" (ExplicitVersion $ pvp 9 0 0 0) testDay
+          >> pure False
+      )
         `catch` \(HeraldException _) -> pure True
     changelogAfter <- T.readFile $ tmpDir </> "cardano-api" </> "CHANGELOG.md"
     pure (wasCaught, changelogBefore == changelogAfter)
@@ -330,7 +364,7 @@ prop_batch_auto_no_cabal = H.propertyOnce $ do
                 ]
           }
   caught <- H.evalIO $ setupTestRepo $ \tmpDir ->
-    (batchPackage noCabalConfig tmpDir "cardano-api" Nothing testDay >> pure False)
+    (batchPackage noCabalConfig tmpDir "cardano-api" AutoVersion testDay >> pure False)
       `catch` \(HeraldException _) -> pure True
 
   H.assertWith caught id
@@ -356,7 +390,7 @@ prop_batch_auto_missing_version = H.propertyOnce $ do
         , fragmentDescription = "Fix something"
         , fragmentPR = 42
         }
-    (batchPackage testConfigMultiProject tmpDir "cardano-api" Nothing testDay >> pure False)
+    (batchPackage testConfigMultiProject tmpDir "cardano-api" AutoVersion testDay >> pure False)
       `catch` \(HeraldException _) -> pure True
 
   H.assertWith caught id
@@ -367,7 +401,7 @@ prop_batch_same_version :: Property
 prop_batch_same_version = H.propertyOnce $ do
   result <- H.evalIO $ setupTestRepo $ \tmpDir ->
     -- Current version in setupTestRepo is 8.4.1.2
-    batchPackage testConfigMultiProject tmpDir "cardano-api" (Just $ pvp 8 4 1 2) testDay
+    batchPackage testConfigMultiProject tmpDir "cardano-api" (ExplicitVersion $ pvp 8 4 1 2) testDay
 
   H.assertWith result isJust
 
@@ -375,7 +409,7 @@ prop_batch_same_version = H.propertyOnce $ do
 prop_batch_unknown_project :: Property
 prop_batch_unknown_project = H.propertyOnce $ do
   caught <- H.evalIO $ setupTestRepo $ \tmpDir ->
-    (batchPackage testConfigMultiProject tmpDir "nonexistent" Nothing testDay >> pure False)
+    (batchPackage testConfigMultiProject tmpDir "nonexistent" AutoVersion testDay >> pure False)
       `catch` \(HeraldException _) -> pure True
 
   H.assertWith caught id
@@ -403,7 +437,7 @@ prop_batch_downgrade_skipped_missing_version = H.propertyOnce $ do
         , fragmentPR = 42
         }
     -- 1.0.0.0 could be a downgrade, but no current version to compare against
-    batchPackage testConfigMultiProject tmpDir "cardano-api" (Just $ pvp 1 0 0 0) testDay
+    batchPackage testConfigMultiProject tmpDir "cardano-api" (ExplicitVersion $ pvp 1 0 0 0) testDay
 
   H.assertWith result isJust
 
@@ -420,7 +454,9 @@ prop_batch_mixed_valid_invalid_kinds = H.propertyOnce $ do
         , fragmentDescription = "Mixed kinds"
         , fragmentPR = 999
         }
-    (batchPackage testConfigMultiProject tmpDir "cardano-api" (Just $ pvp 9 0 0 0) testDay >> pure False)
+    ( batchPackage testConfigMultiProject tmpDir "cardano-api" (ExplicitVersion $ pvp 9 0 0 0) testDay
+        >> pure False
+      )
       `catch` \(HeraldException _) -> pure True
 
   H.assertWith caught id
@@ -445,7 +481,7 @@ prop_batch_missing_changelog = H.propertyOnce $ do
         , fragmentDescription = "Fix something"
         , fragmentPR = 42
         }
-    (batchPackage testConfigMultiProject tmpDir "cardano-api" Nothing testDay >> pure False)
+    (batchPackage testConfigMultiProject tmpDir "cardano-api" AutoVersion testDay >> pure False)
       `catch` \(_ :: SomeException) -> pure True
 
   H.assertWith caught id
@@ -469,7 +505,7 @@ prop_batch_missing_cabal_file = H.propertyOnce $ do
         , fragmentPR = 42
         }
     -- Auto-version needs the .cabal file to read current version
-    (batchPackage testConfigMultiProject tmpDir "cardano-api" Nothing testDay >> pure False)
+    (batchPackage testConfigMultiProject tmpDir "cardano-api" AutoVersion testDay >> pure False)
       `catch` \(_ :: SomeException) -> pure True
 
   H.assertWith caught id
@@ -478,7 +514,7 @@ prop_batch_missing_cabal_file = H.propertyOnce $ do
 prop_batch_version_file_auto :: Property
 prop_batch_version_file_auto = H.propertyOnce $ do
   (versionContent, changelog) <- H.evalIO $ setupVersionFileRepo $ \tmpDir -> do
-    Just _ <- batchPackage testConfigVersionFile tmpDir "my-action" Nothing testDay
+    Just _ <- batchPackage testConfigVersionFile tmpDir "my-action" AutoVersion testDay
     versionContent <- readFile $ tmpDir </> "my-action" </> "version.txt"
     changelog <- T.readFile $ tmpDir </> "my-action" </> "CHANGELOG.md"
     pure (versionContent, changelog)
@@ -491,7 +527,8 @@ prop_batch_version_file_auto = H.propertyOnce $ do
 prop_batch_version_file_explicit :: Property
 prop_batch_version_file_explicit = H.propertyOnce $ do
   (versionContent, changelog) <- H.evalIO $ setupVersionFileRepo $ \tmpDir -> do
-    Just _ <- batchPackage testConfigVersionFile tmpDir "my-action" (Just $ pvp 2 0 0 0) testDay
+    Just _ <-
+      batchPackage testConfigVersionFile tmpDir "my-action" (ExplicitVersion $ pvp 2 0 0 0) testDay
     versionContent <- readFile $ tmpDir </> "my-action" </> "version.txt"
     changelog <- T.readFile $ tmpDir </> "my-action" </> "CHANGELOG.md"
     pure (versionContent, changelog)
@@ -503,7 +540,7 @@ prop_batch_version_file_explicit = H.propertyOnce $ do
 prop_batch_version_file_commit :: Property
 prop_batch_version_file_commit = H.propertyOnce $ do
   committedFiles <- H.evalIO $ setupVersionFileBatchRepo $ \tmpDir -> do
-    Just result <- batchPackage testConfigVersionFile tmpDir "my-action" Nothing testDay
+    Just result <- batchPackage testConfigVersionFile tmpDir "my-action" AutoVersion testDay
     commitBatchResult tmpDir result Commit
     readGit tmpDir ["diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"]
 
@@ -528,7 +565,8 @@ prop_batch_version_file_creates = H.propertyOnce $ do
         , fragmentDescription = "Add caching"
         , fragmentPR = 10
         }
-    Just _ <- batchPackage testConfigVersionFile tmpDir "my-action" (Just $ pvp 1 0 0 0) testDay
+    Just _ <-
+      batchPackage testConfigVersionFile tmpDir "my-action" (ExplicitVersion $ pvp 1 0 0 0) testDay
     versionContent <- readFile $ actionDir </> "version.txt"
     changelog <- T.readFile $ actionDir </> "CHANGELOG.md"
     pure (versionContent, changelog)
@@ -554,7 +592,7 @@ prop_batch_version_file_auto_missing = H.propertyOnce $ do
         , fragmentDescription = "Add caching"
         , fragmentPR = 10
         }
-    Just _ <- batchPackage testConfigVersionFile tmpDir "my-action" Nothing testDay
+    Just _ <- batchPackage testConfigVersionFile tmpDir "my-action" AutoVersion testDay
     versionContent <- readFile $ actionDir </> "version.txt"
     changelog <- T.readFile $ actionDir </> "CHANGELOG.md"
     pure (versionContent, changelog)
@@ -567,7 +605,7 @@ prop_batch_version_file_auto_missing = H.propertyOnce $ do
 prop_batch_version_file_result_fields :: Property
 prop_batch_version_file_result_fields = H.propertyOnce $ do
   result <- H.evalIO $ setupVersionFileRepo $ \tmpDir ->
-    batchPackage testConfigVersionFile tmpDir "my-action" Nothing testDay
+    batchPackage testConfigVersionFile tmpDir "my-action" AutoVersion testDay
 
   br <- H.nothingFail result
   batchResultPackage br === "my-action"
@@ -582,7 +620,9 @@ prop_batch_version_file_downgrade :: Property
 prop_batch_version_file_downgrade = H.propertyOnce $ do
   caught <- H.evalIO $ setupVersionFileRepo $ \tmpDir ->
     -- version.txt has 1.0.0.0; requesting 0.5.0.0 is a downgrade
-    (batchPackage testConfigVersionFile tmpDir "my-action" (Just $ pvp 0 5 0 0) testDay >> pure False)
+    ( batchPackage testConfigVersionFile tmpDir "my-action" (ExplicitVersion $ pvp 0 5 0 0) testDay
+        >> pure False
+    )
       `catch` \(HeraldException _) -> pure True
   H.assertWith caught id
 
@@ -590,11 +630,174 @@ prop_batch_version_file_downgrade = H.propertyOnce $ do
 prop_batch_version_file_commit_tag :: Property
 prop_batch_version_file_commit_tag = H.propertyOnce $ do
   tags <- H.evalIO $ setupVersionFileBatchRepo $ \tmpDir -> do
-    Just result <- batchPackage testConfigVersionFile tmpDir "my-action" Nothing testDay
+    Just result <- batchPackage testConfigVersionFile tmpDir "my-action" AutoVersion testDay
     commitBatchResult tmpDir result CommitTag
     readGit tmpDir ["tag", "-l"]
 
   T.pack tags `shouldContain` "my-action-1.0.1.0"
+
+-- | With no version flag but a computable current version, the error names
+-- the concrete auto-computed version to pass.
+prop_batch_requires_choice_with_suggestion :: Property
+prop_batch_requires_choice_with_suggestion = H.propertyOnce $ do
+  errMsg <- H.evalIO $ setupTestRepo $ \tmpDir ->
+    ( batchPackage testConfigMultiProject tmpDir "cardano-api" UnspecifiedVersion testDay
+        >> pure "no error"
+    )
+      `catch` \(HeraldException msg) -> pure msg
+
+  T.pack errMsg `shouldContain` "requires an explicit version"
+  -- Current version 8.4.1.2, bugfix + breaking fragments -> max bump breaking -> 8.5.0.0
+  T.pack errMsg `shouldContain` "--version 8.5.0.0"
+  T.pack errMsg `shouldContain` "--auto-version"
+  T.pack errMsg `shouldContain` "--dry-run"
+
+-- | With no version flag and no configured version source, the error omits
+-- the concrete suggestion -- there is nothing to compute it from.
+prop_batch_requires_choice_without_suggestion :: Property
+prop_batch_requires_choice_without_suggestion = H.propertyOnce $ do
+  let noCabalConfig =
+        testConfigMultiProject
+          { configProjects =
+              Map.fromList
+                [
+                  ( "cardano-api"
+                  , ProjectConfig
+                      { projectChangelog = "cardano-api/CHANGELOG.md"
+                      , projectVersionSource = Nothing
+                      , projectChangesDir = Nothing
+                      }
+                  )
+                ]
+          }
+  errMsg <- H.evalIO $ setupTestRepo $ \tmpDir ->
+    (batchPackage noCabalConfig tmpDir "cardano-api" UnspecifiedVersion testDay >> pure "no error")
+      `catch` \(HeraldException msg) -> pure msg
+
+  T.pack errMsg `shouldContain` "requires an explicit version"
+  T.pack errMsg `shouldContain` "--version A.B.C.D"
+  T.pack errMsg `shouldContain` "--auto-version"
+  T.pack errMsg `shouldNotContain` "--dry-run"
+
+-- | No fragments for the package is still a no-op (warns, returns Nothing),
+-- regardless of whether a version flag was given.
+prop_batch_requires_choice_no_fragments_is_noop :: Property
+prop_batch_requires_choice_no_fragments_is_noop = H.propertyOnce $ do
+  let configWithEmpty =
+        testConfigMultiProject
+          { configProjects =
+              Map.insert
+                "empty-project"
+                ProjectConfig
+                  { projectChangelog = "empty-project/CHANGELOG.md"
+                  , projectVersionSource = Nothing
+                  , projectChangesDir = Nothing
+                  }
+                $ configProjects testConfigMultiProject
+          }
+  result <- H.evalIO $ setupTestRepo $ \tmpDir ->
+    batchPackage configWithEmpty tmpDir "empty-project" UnspecifiedVersion testDay
+
+  H.assertWith result isNothing
+
+-- | Dry-run modifies nothing: .cabal version, CHANGELOG.md, and the set of
+-- fragment files are all byte-identical before and after.
+prop_dry_run_no_mutation :: Property
+prop_dry_run_no_mutation = H.propertyOnce $ do
+  (before, after) <- H.evalIO $ setupTestRepo $ \tmpDir -> do
+    let snapshot = do
+          cabal <- T.readFile $ tmpDir </> "cardano-api" </> "cardano-api.cabal"
+          changelog <- T.readFile $ tmpDir </> "cardano-api" </> "CHANGELOG.md"
+          fragmentFiles <- sort <$> listDirectory (tmpDir </> ".changes")
+          pure (cabal, changelog, fragmentFiles)
+    beforeSnapshot <- snapshot
+    Just _ <- dryRunBatch testConfigMultiProject tmpDir "cardano-api" AutoVersion testDay
+    afterSnapshot <- snapshot
+    pure (beforeSnapshot, afterSnapshot)
+
+  before === after
+
+-- | Dry-run with neither --version nor --auto-version defaults to the
+-- auto-computed version, unlike a real batch which would error.
+prop_dry_run_default_auto_version :: Property
+prop_dry_run_default_auto_version = H.propertyOnce $ do
+  result <- H.evalIO $ setupTestRepo $ \tmpDir ->
+    dryRunBatch testConfigMultiProject tmpDir "cardano-api" UnspecifiedVersion testDay
+
+  dr <- H.nothingFail result
+  dryRunVersion dr === pvp 8 5 0 0
+
+-- | Dry-run resolves the version the same way a real batch would: the
+-- auto-computed bump for 'AutoVersion', or the given version for
+-- 'ExplicitVersion'. This is the data the CLI's "(auto-computed)" marker is
+-- derived from.
+prop_dry_run_version_by_choice :: Property
+prop_dry_run_version_by_choice = H.propertyOnce $ do
+  (autoResult, explicitResult) <- H.evalIO $ setupTestRepo $ \tmpDir -> do
+    auto <- dryRunBatch testConfigMultiProject tmpDir "cardano-api" AutoVersion testDay
+    explicit <-
+      dryRunBatch
+        testConfigMultiProject
+        tmpDir
+        "cardano-api"
+        (ExplicitVersion $ pvp 9 0 0 0)
+        testDay
+    pure (auto, explicit)
+
+  drAuto <- H.nothingFail autoResult
+  dryRunVersion drAuto === pvp 8 5 0 0
+
+  drExplicit <- H.nothingFail explicitResult
+  dryRunVersion drExplicit === pvp 9 0 0 0
+
+-- | Notable fragments are marked included; fragments with only non-notable
+-- kinds (e.g. "test") are marked excluded.
+prop_dry_run_fragment_fate :: Property
+prop_dry_run_fragment_fate = H.propertyOnce $ do
+  (notableResult, nonNotableResult) <- H.evalIO $ setupTestRepo $ \tmpDir -> do
+    notable <- dryRunBatch testConfigMultiProject tmpDir "cardano-api" AutoVersion testDay
+    nonNotable <- dryRunBatch testConfigMultiProject tmpDir "cardano-api-gen" AutoVersion testDay
+    pure (notable, nonNotable)
+
+  drNotable <- H.nothingFail notableResult
+  H.assertWith (dryRunFragments drNotable) $ all ((== Included) . dryRunFragmentFate)
+
+  drNonNotable <- H.nothingFail nonNotableResult
+  case dryRunFragments drNonNotable of
+    [frag] -> do
+      dryRunFragmentPath frag === ".changes/50-gen-helpers.yml"
+      dryRunFragmentKinds frag === ["test"]
+      dryRunFragmentFate frag === ExcludedNonNotable
+    _ -> H.failure
+
+-- | The dry-run's rendered section is exactly what a real batch prepends to
+-- the changelog for the same inputs.
+prop_dry_run_section_matches_batch :: Property
+prop_dry_run_section_matches_batch = H.propertyOnce $ do
+  (section, changelogAfterRealBatch) <- H.evalIO $ setupTestRepo $ \tmpDir -> do
+    Just dryResult <- dryRunBatch testConfigMultiProject tmpDir "cardano-api" AutoVersion testDay
+    Just _ <- batchPackage testConfigMultiProject tmpDir "cardano-api" AutoVersion testDay
+    changelogAfter <- T.readFile $ tmpDir </> "cardano-api" </> "CHANGELOG.md"
+    pure (dryRunSection dryResult, changelogAfter)
+
+  changelogAfterRealBatch `shouldContain` section
+
+-- | Dry-run performs the same downgrade check as a real batch.
+prop_dry_run_downgrade_check :: Property
+prop_dry_run_downgrade_check = H.propertyOnce $ do
+  caught <- H.evalIO $ setupTestRepo $ \tmpDir ->
+    -- Current version is 8.4.1.2; requesting 1.0.0.0 is a downgrade
+    ( dryRunBatch
+        testConfigMultiProject
+        tmpDir
+        "cardano-api"
+        (ExplicitVersion $ pvp 1 0 0 0)
+        testDay
+        >> pure False
+    )
+      `catch` \(HeraldException _) -> pure True
+
+  H.assertWith caught id
 
 -------------------------------------------------------------------------------
 -- Helpers

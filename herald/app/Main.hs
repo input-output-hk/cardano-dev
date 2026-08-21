@@ -7,7 +7,17 @@ import Options.Applicative
 import System.Exit (exitFailure)
 import System.IO (hPutStrLn, stderr)
 
-import Herald.Command.Batch (BatchResult (..), CommitMode (..), batchPackage, commitBatchResult)
+import Herald.Command.Batch
+  ( BatchResult (..)
+  , CommitMode (..)
+  , DryRunFragment (..)
+  , DryRunResult (..)
+  , FragmentFate (..)
+  , VersionChoice (..)
+  , batchPackage
+  , commitBatchResult
+  , dryRunBatch
+  )
 import Herald.Command.Init (initConfig)
 import Herald.Command.New (NewOptions (..), createFragment, interactiveNew)
 import Herald.Command.Next (nextVersion)
@@ -44,10 +54,14 @@ data ValidateOpts = ValidateOpts
 
 data BatchOpts = BatchOpts
   { batchPackage_ :: !String
-  , batchVersion :: !(Maybe Pvp)
+  , batchVersionChoice :: !VersionChoice
   , batchDate :: !(Maybe Day)
-  , batchCommitMode :: !CommitMode
+  , batchMode :: !BatchMode
   }
+
+-- | Whether to preview a batch (no mutation) or actually run it, optionally
+-- committing and\/or tagging.
+data BatchMode = DryRun | Execute !CommitMode
 
 newtype NextOpts = NextOpts
   { nextPackage :: String
@@ -118,14 +132,33 @@ batchParser :: Parser BatchOpts
 batchParser =
   BatchOpts
     <$> argument str (metavar "PACKAGE" <> help "Package name")
-    <*> optional
-      (option pvpReader (long "version" <> short 'v' <> metavar "A.B.C.D" <> help "Explicit version"))
+    <*> versionChoiceParser
     <*> optional
       ( option
           dayReader
           (long "date" <> metavar "YYYY-MM-DD" <> help "Date for the changelog section header (default: today)")
       )
-    <*> commitModeParser
+    <*> batchModeParser
+
+-- | Batch requires the caller to choose exactly one of an explicit version or
+-- auto-computation; 'UnspecifiedVersion' means neither flag was given.
+versionChoiceParser :: Parser VersionChoice
+versionChoiceParser =
+  ExplicitVersion
+    <$> option
+      pvpReader
+      (long "version" <> short 'v' <> metavar "A.B.C.D" <> help "Explicit version to release")
+      <|> flag'
+        AutoVersion
+        (long "auto-version" <> help "Compute the version automatically from unreleased fragment kinds")
+      <|> pure UnspecifiedVersion
+
+batchModeParser :: Parser BatchMode
+batchModeParser =
+  flag'
+    DryRun
+    (long "dry-run" <> help "Preview the batch without writing, committing, or deleting anything")
+    <|> (Execute <$> commitModeParser)
 
 commitModeParser :: Parser CommitMode
 commitModeParser =
@@ -244,18 +277,16 @@ runCommand config cmd = case cmd of
       else do
         throwHerald . T.unpack $ T.intercalate "\n" errors
   CmdBatch batchOpts -> do
-    let version = batchVersion batchOpts
+    let package = T.pack $ batchPackage_ batchOpts
+        versionChoice = batchVersionChoice batchOpts
     day <- maybe (utctDay <$> getCurrentTime) pure $ batchDate batchOpts
-    mResult <- batchPackage config "." (T.pack $ batchPackage_ batchOpts) version day
-    case mResult of
-      Nothing -> pure ()
-      Just result -> do
-        putStrLn $ "Batched " <> batchPackage_ batchOpts <> " " <> showPvp (batchResultVersion result)
-        putStrLn $ "  Changelog: " <> batchResultChangelog result
-        maybe (pure ()) (\path -> putStrLn $ "  Version file: " <> path) $ batchResultVersionPath result
-        putStrLn "  Consumed changelog fragments:"
-        mapM_ (\f -> putStrLn $ "    " <> f) $ batchResultFragments result
-        commitBatchResult "." result $ batchCommitMode batchOpts
+    case batchMode batchOpts of
+      DryRun -> do
+        mResult <- dryRunBatch config "." package versionChoice day
+        maybe (pure ()) (printDryRunResult versionChoice) mResult
+      Execute commitMode -> do
+        mResult <- batchPackage config "." package versionChoice day
+        maybe (pure ()) (reportBatchResult commitMode) mResult
   CmdNext nextOpts -> do
     result <- nextVersion config "." (T.pack $ nextPackage nextOpts)
     maybe
@@ -266,6 +297,52 @@ runCommand config cmd = case cmd of
       )
       (putStrLn . showPvp)
       result
+
+-- | Print a completed batch's result and perform the requested commit\/tag.
+reportBatchResult :: CommitMode -> BatchResult -> IO ()
+reportBatchResult commitMode result = do
+  putStrLn $
+    "Batched " <> T.unpack (batchResultPackage result) <> " " <> showPvp (batchResultVersion result)
+  putStrLn $ "  Changelog: " <> batchResultChangelog result
+  maybe (pure ()) (\path -> putStrLn $ "  Version file: " <> path) $ batchResultVersionPath result
+  putStrLn "  Consumed changelog fragments:"
+  mapM_ (\f -> putStrLn $ "    " <> f) $ batchResultFragments result
+  commitBatchResult "." result commitMode
+
+-- | Whether a version choice leaves the version to be computed rather than
+-- pinning it explicitly.
+isAutoComputedVersion :: VersionChoice -> Bool
+isAutoComputedVersion (ExplicitVersion _) = False
+isAutoComputedVersion _ = True
+
+-- | Print a batch dry-run report: current\/new version (marked auto-computed
+-- when applicable), each fragment's path\/kinds\/fate, and the changelog
+-- section a real batch would prepend.
+printDryRunResult :: VersionChoice -> DryRunResult -> IO ()
+printDryRunResult versionChoice result = do
+  putStrLn $ "Dry run for " <> T.unpack (dryRunPackage result) <> ":"
+  putStrLn $ "  Current version: " <> maybe "(none)" showPvp (dryRunCurrentVersion result)
+  putStrLn $
+    "  New version:     "
+      <> showPvp (dryRunVersion result)
+      <> if isAutoComputedVersion versionChoice then " (auto-computed)" else ""
+  putStrLn "  Fragments:"
+  mapM_ printFragment $ dryRunFragments result
+  putStrLn ""
+  putStrLn "Changelog section that would be prepended:"
+  putStrLn . T.unpack $ dryRunSection result
+ where
+  printFragment frag =
+    putStrLn $
+      "    "
+        <> dryRunFragmentPath frag
+        <> " ("
+        <> T.unpack (T.intercalate ", " $ dryRunFragmentKinds frag)
+        <> ") - "
+        <> case dryRunFragmentFate frag of
+          Included -> "included in changelog"
+          ExcludedNonNotable ->
+            "excluded (non-notable kinds: " <> T.unpack (T.intercalate ", " $ dryRunFragmentKinds frag) <> ")"
 
 -- | Run the 'new' command. If all required options are provided, create fragments
 -- directly. Otherwise, enter interactive mode.
