@@ -122,12 +122,11 @@ runs:
       run: |
         HERALD="${{ steps.herald.outputs.bin }}"
         CONFIG="-c ${{ inputs.config }}"
-        VERSION_ARG=""
-        if [ -n "${{ inputs.version }}" ]; then
-          VERSION_ARG="--version ${{ inputs.version }}"
-        fi
 
-        $HERALD $CONFIG batch "${{ inputs.package }}" --commit $VERSION_ARG
+        # Always pass the version computed (or given) in the version step, so the
+        # branch/tag/PR names and the batched version can never diverge.
+        $HERALD $CONFIG batch "${{ inputs.package }}" --commit \
+          --version "${{ steps.version.outputs.value }}"
 
     - name: Push release branch
       shell: bash
