@@ -4,7 +4,7 @@ Covers the `.herald.yml` format, kind properties, version sources, git URL norma
 Underpins [R2](../requirements.md#r2-multiple-packages-mono-repo), [R11](../requirements.md#r11-version-file-support-for-non-haskell-projects).
 
 Used by: all commands.
-See also: [ADR 002 - version-file](../decisions/002-version-file.md).
+See also: [ADR 002 - version-file](../decisions/002-version-file.md), [CLI](cli.md) for the `-c`/`--config` option itself.
 
 ## File format
 

@@ -3,6 +3,7 @@ module Main where
 import Control.Exception (catch)
 import Data.Text qualified as T
 import Data.Time (Day, defaultTimeLocale, getCurrentTime, parseTimeM, utctDay)
+import Data.Version (showVersion)
 import Options.Applicative
 import System.Exit (exitFailure)
 import System.IO (hPutStrLn, stderr)
@@ -26,6 +27,7 @@ import Herald.Config (loadConfig)
 import Herald.Fragment.Read (discoverFragmentPaths)
 import Herald.Pvp (Pvp, parsePvp, showPvp)
 import Herald.Types (Config (..), HeraldException (..), throwHerald)
+import Paths_herald qualified as Paths
 
 newtype GlobalOpts = GlobalOpts
   { globalConfig :: FilePath
@@ -224,10 +226,18 @@ commandParser =
           )
     )
 
+-- | Top-level @--version@ flag: prints herald's own version and exits.
+-- Distinct from @batch@'s @--version@, which sets the version being released.
+versionOption :: Parser (a -> a)
+versionOption =
+  infoOption
+    (showVersion Paths.version)
+    (long "version" <> help "Show herald's version and exit")
+
 opts :: ParserInfo (GlobalOpts, Command)
 opts =
   info
-    ((,) <$> globalOptsParser <*> commandParser <**> helper)
+    ((,) <$> globalOptsParser <*> commandParser <**> helper <**> versionOption)
     ( fullDesc
         <> progDesc "Manage changelog fragments, version bumps, and releases for PVP-versioned projects"
         <> header "herald - changelog and versioning automation"
