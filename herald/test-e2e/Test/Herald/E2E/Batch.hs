@@ -111,7 +111,8 @@ prop_batch_explicit_version = H.propertyOnce $ do
     remaining <- sort <$> listDirectory (tmpDir </> ".changes")
     pure (cabal, changelog, remaining)
 
-  cabal `shouldContain` "version: 9.0.0.0"
+  -- Fixture aligns the version column with 7 spaces; writeCabalVersion preserves it.
+  cabal `shouldContain` "version:       9.0.0.0"
   changelog `shouldContain` "## 9.0.0.0"
   remaining === ["50-gen-helpers.yml"]
 
@@ -124,7 +125,8 @@ prop_batch_auto_version = H.propertyOnce $ do
     changelog <- T.readFile $ tmpDir </> "cardano-api" </> "CHANGELOG.md"
     pure (cabal, changelog)
 
-  cabal `shouldContain` "version: 8.5.0.0"
+  -- Fixture aligns the version column with 7 spaces; writeCabalVersion preserves it.
+  cabal `shouldContain` "version:       8.5.0.0"
   changelog `shouldContain` "## 8.5.0.0"
 
 -- | New changelog section is prepended above the existing one; old content preserved.
