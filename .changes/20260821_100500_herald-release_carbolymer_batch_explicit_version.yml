@@ -1,5 +1,0 @@
-description: The release action now always passes the version it computed to `herald batch --version`, instead of letting batch recompute it, so the release branch, tag and PR names can no longer diverge from the version actually written to the changelog and version source.
-kind:
-- compatible
-pr: 44
-project: herald-release

@@ -1,3 +1,13 @@
+## 0.0.3.0 -- 2026-08-24
+
+- The release PR signing instructions now use `git rebase --force-rebase --gpg-sign` instead of re-signing each commit with an `--exec 'git commit --amend --no-edit -S'` loop. The result is identical (all release commits recreated and signed), with a simpler single-pass command.
+  (compatible)
+  [PR 44](https://github.com/input-output-hk/cardano-dev/pull/44)
+
+- The release action now always passes the version it computed to `herald batch --version`, instead of letting batch recompute it, so the release branch, tag and PR names can no longer diverge from the version actually written to the changelog and version source.
+  (compatible)
+  [PR 44](https://github.com/input-output-hk/cardano-dev/pull/44)
+
 ## 0.0.2.0 -- 2026-07-28
 
 - Fix the release action never adding the changelog fragment for the next cycle: its check for an already existing fragment always matched, so the step always skipped.
