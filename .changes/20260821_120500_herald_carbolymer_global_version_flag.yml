@@ -1,5 +1,0 @@
-description: Added a top-level `herald --version` option that prints herald's own version and exits, independent of the `batch` subcommand's existing `-v`/`--version` option.
-kind:
-- feature
-pr: 44
-project: herald

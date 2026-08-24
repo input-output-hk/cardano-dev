@@ -1,5 +1,0 @@
-description: Added a --dry-run option to the batch command that previews the version, per-fragment changelog inclusion, and the rendered changelog section without writing or deleting anything.
-kind:
-- feature
-pr: 44
-project: herald

@@ -1,5 +1,0 @@
-description: Bumping a project's version in a .cabal file no longer reformats the file, preserving the original column alignment, CRLF line endings, and the presence or absence of a final trailing newline.
-kind:
-- bugfix
-pr: 44
-project: herald
