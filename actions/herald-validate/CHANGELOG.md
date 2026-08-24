@@ -1,3 +1,5 @@
+## 0.0.1.1 -- 2026-08-24
+
 ## 0.0.1.0 -- 2026-05-19
 
 - Surface validation errors as GitHub error annotations and step summary instead of burying them in the log.
