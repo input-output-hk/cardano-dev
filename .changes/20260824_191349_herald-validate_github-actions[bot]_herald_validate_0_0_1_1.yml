@@ -1,0 +1,5 @@
+description: Release herald-validate 0.0.1.1
+kind:
+- release
+pr: 47
+project: herald-validate
