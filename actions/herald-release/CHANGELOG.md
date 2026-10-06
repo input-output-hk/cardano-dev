@@ -1,3 +1,9 @@
+## 0.0.3.1 -- 2026-10-06
+
+- The CHaP submission snippet in the release PR body now resolves a signed or annotated tag to the commit it points to, instead of the tag object hash, so the hash passed to CHaP is always a commit in the repository history.
+  (bugfix)
+  [PR 49](https://github.com/input-output-hk/cardano-dev/pull/49)
+
 ## 0.0.3.0 -- 2026-08-24
 
 - The release PR signing instructions now use `git rebase --force-rebase --gpg-sign` instead of re-signing each commit with an `--exec 'git commit --amend --no-edit -S'` loop. The result is identical (all release commits recreated and signed), with a simpler single-pass command.
