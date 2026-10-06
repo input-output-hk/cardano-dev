@@ -70,8 +70,8 @@ for line in "${lines[@]}"; do
   fi
 
   head_commit="$(git rev-parse --quiet --verify HEAD)"
-  tag_commit="$(git rev-parse --quiet --verify "refs/tags/$tag" || true)"
-  remote_commit="$(git ls-remote --quiet origin --verify "refs/tags/$tag" | awk '{print $1}' || true)"
+  tag_commit="$(git rev-parse --quiet --verify "refs/tags/$tag^{commit}" || true)"
+  remote_commit="$(git ls-remote --quiet origin "refs/tags/$tag" "refs/tags/$tag^{}" | tail -n1 | awk '{print $1}' || true)"
   branch_pattern="^origin/($main_branch|$release_branch_prefix$name-[0-9.]{1,}($release_branch_suffix)?)$"
 
   if [ "$tag_commit" == "" ]; then
