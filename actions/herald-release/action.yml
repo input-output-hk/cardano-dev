@@ -284,7 +284,7 @@ runs:
         set -euo pipefail
         git fetch origin
         git checkout -b __TAG__ origin/main
-        TAG_SHA=$(git ls-remote __REPO__ refs/tags/__TAG__ | cut -f1)
+        TAG_SHA=$(git ls-remote __REPO__ "refs/tags/__TAG__" "refs/tags/__TAG__^{}" | tail -n1 | cut -f1)
         ./scripts/add-from-github.sh __REPO__ "$TAG_SHA"__SUBDIR__
         git push -u origin __TAG__
         CHAP_PR=$(gh pr create --repo intersectmbo/cardano-haskell-packages \

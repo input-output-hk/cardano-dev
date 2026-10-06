@@ -1,0 +1,5 @@
+description: The CHaP submission snippet in the release PR body now resolves a signed or annotated tag to the commit it points to, instead of the tag object hash, so the hash passed to CHaP is always a commit in the repository history.
+kind:
+- bugfix
+pr: 49
+project: herald-release
