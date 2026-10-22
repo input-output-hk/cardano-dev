@@ -1,6 +1,0 @@
-project: grpc-deps
-pr: 51
-kind:
-  - maintenance
-description: |
-  Install the Windows dependencies from MSYS2 CLANG64 instead of MINGW64, matching input-output-hk/actions/base.
